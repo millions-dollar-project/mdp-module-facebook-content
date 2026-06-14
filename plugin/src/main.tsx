@@ -17,10 +17,10 @@ type ShellWindow = Window & {
 function registerPlugin(): boolean {
   try {
     const shell = typeof window !== 'undefined' ? (window as ShellWindow).mdp : undefined;
-    console.log('[facebook] window.mdp =', shell, 'register =', typeof shell?.register);
+    console.log('[facebook-content] window.mdp =', shell, 'register =', typeof shell?.register);
     if (shell?.register) {
       shell.register({
-        id: 'facebook',
+        id: 'facebook-content',
         mount(container: HTMLElement) {
           const root = createRoot(container);
           root.render(React.createElement(App));
@@ -30,7 +30,7 @@ function registerPlugin(): boolean {
           (container as RootEl | undefined)?._root?.unmount();
         },
       });
-      console.log('[facebook] registered successfully');
+      console.log('[facebook-content] registered successfully');
       return true;
     }
   } catch (err) {
@@ -40,7 +40,7 @@ function registerPlugin(): boolean {
 }
 
 if (!registerPlugin()) {
-  console.log('[facebook] mdp not ready, starting poll...');
+  console.log('[facebook-content] mdp not ready, starting poll...');
   let attempts = 0;
   const maxAttempts = 60;
   const interval = window.setInterval(() => {
@@ -51,12 +51,12 @@ if (!registerPlugin()) {
     }
     if (attempts >= maxAttempts) {
       window.clearInterval(interval);
-      console.log('[facebook] max attempts reached, falling back to standalone mount');
+      console.log('[facebook-content] max attempts reached, falling back to standalone mount');
       const mount = document.getElementById('root');
       if (mount) {
         createRoot(mount).render(React.createElement(App));
       } else {
-        console.error('[facebook] neither window.mdp.register nor #root found');
+        console.error('[facebook-content] neither window.mdp.register nor #root found');
       }
     }
   }, 50);
