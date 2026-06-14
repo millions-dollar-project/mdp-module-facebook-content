@@ -123,7 +123,7 @@ export const AppRoot: React.FC = () => {
     });
 
     const style = document.createElement('style');
-    style.innerHTML = \`
+    style.innerHTML = `
       .material-symbols-outlined {
           font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
       }
@@ -132,7 +132,7 @@ export const AppRoot: React.FC = () => {
           margin-top: 56px;
           min-height: calc(100vh - 56px - 32px);
       }
-    \`;
+    `;
     document.head.appendChild(style);
 
     return () => {
