@@ -1,0 +1,4 @@
+/backend.exe
+*.exe
+/tmp
+/dist

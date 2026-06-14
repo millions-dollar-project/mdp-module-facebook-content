@@ -1,0 +1,24 @@
+{
+    "files.exclude": {
+        "**/node_modules": true,
+        "**/.git": true,
+        "**/dist": true,
+        "**/build": true,
+        "**/.next": true,
+        "**/__pycache__": true
+    },
+    "files.watcherExclude": {
+        "**/node_modules/**": true,
+        "**/.git/**": true,
+        "**/dist/**": true,
+        "**/build/**": true
+    },
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/dist": true,
+        "**/build": true,
+        "**/.next": true
+    },
+    "typescript.tsserver.maxMemory": 3072,
+    "search.maxResults": 1000
+}

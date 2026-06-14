@@ -1,0 +1,32 @@
+# Postgres for local dev. Port 5433 keeps it out of the way of any
+# system-wide Postgres you may also be running.
+#
+# Usage:
+#   docker compose up -d          # start
+#   docker compose down -v       # stop and wipe data
+#
+# Then set in your shell:
+#   export DATABASE_URL=postgres://facebook:facebook@localhost:5433/facebook?sslmode=disable
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mdp-facebook-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: facebook
+      POSTGRES_USER: facebook
+      POSTGRES_PASSWORD: facebook
+    ports:
+      - "5433:5432"
+    volumes:
+      - facebook-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U facebook -d facebook"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  facebook-pgdata:
+    name: mdp-facebook-pgdata

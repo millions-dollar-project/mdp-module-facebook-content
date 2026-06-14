@@ -1,0 +1,11 @@
+node_modules/
+dist/
+backend/bin/
+backend/server
+backend/backend
+*.log
+.env
+.env.local
+.env.backup
+.DS_Store
+.idea/

@@ -1,0 +1,13 @@
+{
+  "_comment": "Token map for mdp scaffold module <name>. Keys are patterns in files/paths, values are placeholder names resolved by the scaffolder.",
+  "tokens": [
+    {"from": "FACEBOOK",  "to": "UPPER",  "description": "All-caps platform name"},
+    {"from": "Facebook",  "to": "Title",  "description": "Title-case platform name"},
+    {"from": "facebook",  "to": "lower",  "description": "Lowercase platform name"},
+    {"from": "MdpPluginFacebook", "to": "MdpPlugin{Title}", "description": "Vite IIFE global name"}
+  ],
+  "skip_dirs": [".git", "node_modules", "dist", ".pnpm-store", "backend/backend"],
+  "skip_files": ["pnpm-lock.yaml", "go.sum", "scaffold.config.json"],
+  "template_repo": "mdp-module-facebook",
+  "version": "0.1.0"
+}

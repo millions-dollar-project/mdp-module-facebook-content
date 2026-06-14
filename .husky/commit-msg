@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+exec bash scripts/commit-lint.sh "$1"

@@ -1,0 +1,38 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "internal/db/queries"
+    schema: "internal/db/migrations"
+    gen:
+      go:
+        package: "db"
+        out: "db"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_pointers_for_null_types: true
+        emit_prepared_queries: false
+        emit_interface: false
+        emit_exact_table_names: false
+        emit_empty_slices: true
+        emit_methods_with_db_argument: false
+        emit_enum_valid_method: true
+        emit_all_enum_values: true
+        overrides:
+          - column: "facebook.pages.page_access_token"
+            go_type: "string"
+          - column: "facebook.config.app_secret"
+            go_type: "string"
+          - column: "facebook.config.page_access_token"
+            go_type: "string"
+          - column: "facebook.conversations.collected_info"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "facebook.comments.collected_info"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "facebook.webhook_events.payload"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"

@@ -1,0 +1,17 @@
+{
+  "name": "@mdp-private/mdp-module-facebook",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "prepare": "husky",
+    "test": "pnpm --filter @mdp-private/mdp-module-facebook-plugin test && cd backend && go test ./...",
+    "test:plugin": "pnpm --filter @mdp-private/mdp-module-facebook-plugin test",
+    "test:backend": "cd backend && go test ./...",
+    "typecheck": "pnpm --filter @mdp-private/mdp-module-facebook-plugin typecheck",
+    "lint:secrets": "bash scripts/secret-scan.sh",
+    "lint:commit": "bash scripts/commit-lint.sh"
+  },
+  "devDependencies": {
+    "husky": "^9.1.0"
+  }
+}

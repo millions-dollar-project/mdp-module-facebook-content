@@ -1,0 +1,14 @@
+{
+  "id": "facebook-content",
+  "name": "FB Content",
+  "version": "0.1.0",
+  "entry": "facebookContent.iife.js",
+  "icon": "icon.svg",
+  "tabs": [
+    {
+      "id": "main",
+      "label": "FB Content",
+      "entry": "facebookContent.iife.js"
+    }
+  ]
+}
