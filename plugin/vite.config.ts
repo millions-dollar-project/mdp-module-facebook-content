@@ -24,5 +24,9 @@ export default defineConfig({
         banner: 'var process=process||{env:{NODE_ENV:"production"}};',
       },
     },
+    watch: {
+      buildDelay: 300,
+      exclude: ['node_modules/**'],
+    },
   },
 });
