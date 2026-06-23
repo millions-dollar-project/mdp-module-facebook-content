@@ -1,6 +1,6 @@
 /// <reference types="@testing-library/jest-dom" />
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { App } from './App'
 
 describe('App shell', () => {
@@ -9,57 +9,34 @@ describe('App shell', () => {
     delete (window as unknown as { mdp?: unknown }).mdp
   })
 
-  it('renders brand and at least 11 nav items', () => {
+  it('renders the three top-level studio tabs', () => {
     render(<App />)
-    expect(screen.getByText('Facebook')).toBeInTheDocument()
-    const dashboard = screen.getByRole('button', { name: /Dashboard/ })
-    const compose = screen.getByRole('button', { name: /Bài đăng/ })
-    const scheduler = screen.getByRole('button', { name: /Lịch đăng/ })
-    const queue = screen.getByRole('button', { name: /Hàng đợi/ })
-    // Sau khi gộp, Hộp thư + Bình luận nằm chung dưới tab "Trả lời tự động".
-    const engage = screen.getByRole('button', { name: /Trả lời tự động/ })
-    const pages = screen.getByRole('button', { name: /^Trang$/ })
-    const history = screen.getByRole('button', { name: /Lịch sử/ })
-    const analytics = screen.getByRole('button', { name: /Phân tích/ })
-    const settings = screen.getByRole('button', { name: /Cấu hình/ })
-    expect(dashboard).toBeInTheDocument()
-    expect(compose).toBeInTheDocument()
-    expect(scheduler).toBeInTheDocument()
-    expect(queue).toBeInTheDocument()
-    expect(engage).toBeInTheDocument()
-    expect(pages).toBeInTheDocument()
-    expect(history).toBeInTheDocument()
-    expect(analytics).toBeInTheDocument()
-    expect(settings).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Composer' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Kanban' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Crawl' })).toBeInTheDocument()
   })
 
-  it('switches to compose tab on click', async () => {
+  it('Composer tab is active by default and shows the brain UI', () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /Bài đăng/ }))
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/Bạn đang nghĩ gì/i)).toBeInTheDocument()
-    })
+    const composerTab = screen.getByRole('tab', { name: 'Composer' })
+    expect(composerTab).toHaveAttribute('aria-selected', 'true')
+    // FacebookBrain renders the compose button
+    expect(screen.getByRole('button', { name: /Compose Studio/i })).toBeInTheDocument()
   })
 
-  it('switches to engage tab and renders the combined inbox + comments sub-tabs', async () => {
+  it('switches to Kanban tab on click and shows kanban columns', () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /Trả lời tự động/ }))
-    // 2 sub-tab đều có mặt trong DOM.
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Hộp thư/ })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /Bình luận/ })).toBeInTheDocument()
-    })
-    // Sub-tab Hộp thư là mặc định -> danh sách khách hàng phải hiện.
-    expect(
-      screen.getAllByText(/Chọn một khách hàng|Không có khách hàng/i).length
-    ).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('tab', { name: 'Kanban' }))
+    expect(screen.getByTestId('kanban-pane')).toBeInTheDocument()
+    expect(screen.getByText('To Do')).toBeInTheDocument()
+    expect(screen.getByText('In Progress')).toBeInTheDocument()
   })
 
-  it('falls back to mock data when fetch fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('boom')))
+  it('switches to Crawl tab on click and shows crawl configuration', () => {
     render(<App />)
-    // Dashboard renders stat cards with mock data
-    expect(screen.getByText('Bài đã đăng')).toBeInTheDocument()
-    expect(screen.getByText('Lịch sắp tới')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Crawl' }))
+    expect(screen.getByTestId('crawl-pane')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Run Discovery Crawl/i })).toBeInTheDocument()
+    expect(screen.getByTestId('crawl-list')).toBeInTheDocument()
   })
 })
