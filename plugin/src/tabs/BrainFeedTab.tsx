@@ -1,0 +1,144 @@
+/**
+ * BrainFeedTab — top-level "Brain" tab.
+ *
+ * Composes Header + Row list + Pagination + Empty. Owns:
+ *   - pagination (page) and filter (status, search)
+ *   - the current selection set (ids)
+ *   - delete + generate actions (delegated to hooks)
+ *
+ * Toast feedback uses `useToast` from the shared Toast component. The
+ * plugin wraps the whole tree in `<ToastProvider>` (see App.tsx), so we
+ * can call `toast.success/error/info` here. If Toast is absent the hook
+ * degrades gracefully to `console.log`.
+ */
+import React, { useEffect, useMemo, useState } from 'react';
+import { useToast } from '../components';
+import { useBrainFeed } from '../hooks/useBrainFeed';
+import { useBrainDelete } from '../hooks/useBrainDelete';
+import { useBrainGenerate } from '../hooks/useBrainGenerate';
+import { BrainFeedHeader, type BrainFeedFilterState } from './BrainFeedHeader';
+import { BrainFeedRow } from './BrainFeedRow';
+import { BrainFeedPagination } from './BrainFeedPagination';
+import { BrainFeedEmpty } from './BrainFeedEmpty';
+
+export interface BrainFeedTabProps {
+  onGoToCrawl: () => void;
+  onDraftsReady: (feedIds: string[]) => void;
+}
+
+export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraftsReady }) => {
+  const toast = useToast();
+  const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState<BrainFeedFilterState>({ sourcePage: '', status: '', search: '' });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { data, loading, reload } = useBrainFeed({
+    page,
+    pageSize: 20,
+    status: filter.status || undefined,
+    search: filter.search || undefined,
+  });
+  const { remove } = useBrainDelete();
+  const { generate, loading: isGenerating } = useBrainGenerate();
+
+  const itemsKey = useMemo(() => data.items.map((i) => i.id).join(','), [data.items]);
+
+  // Drop selection entries that scroll out of view (e.g. on page change or filter).
+  useEffect(() => {
+    setSelected((prev) => {
+      const visible = new Set(data.items.map((i) => i.id));
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (visible.has(id)) next.add(id);
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [itemsKey]);
+
+  const handleToggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await remove(id);
+      reload();
+      toast.success('Đã xoá bài');
+    } catch (e) {
+      toast.error(`Xoá lỗi: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selected.size === 0) return;
+    const ids = Array.from(selected);
+    // Replace confirm() with a real dialog in a follow-up.
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Xoá ${ids.length} bài khỏi Brain?`)) return;
+    for (const id of ids) {
+      try { await remove(id); } catch { /* continue */ }
+    }
+    setSelected(new Set());
+    reload();
+    toast.success(`Đã xoá ${ids.length} bài`);
+  };
+
+  const handleGenerate = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    try {
+      const res = await generate({ feedIds: ids });
+      toast.success(
+        `Generated ${res.drafts.length} draft${res.drafts.length > 1 ? 's' : ''}` +
+        (res.failures.length > 0 ? `, ${res.failures.length} lỗi` : ''),
+      );
+      setSelected(new Set());
+      reload();
+      onDraftsReady(ids);
+    } catch (e) {
+      toast.error(`Generate lỗi: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  if (!loading && data.items.length === 0 && data.total === 0) {
+    return <BrainFeedEmpty onGoToCrawl={onGoToCrawl} />;
+  }
+
+  return (
+    <div data-testid="brain-feed-tab">
+      <BrainFeedHeader
+        filter={filter}
+        onFilterChange={(f) => { setFilter(f); setPage(1); }}
+        selectedCount={selected.size}
+        total={data.total}
+        isGenerating={isGenerating}
+        onGenerate={handleGenerate}
+        onDeleteSelected={handleDeleteSelected}
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {data.items.map((post) => (
+          <BrainFeedRow
+            key={post.id}
+            post={post}
+            selected={selected.has(post.id)}
+            onToggle={handleToggle}
+            onDelete={handleDelete}
+          />
+        ))}
+      </div>
+      <BrainFeedPagination
+        page={data.page}
+        pageSize={data.pageSize}
+        total={data.total}
+        onPageChange={setPage}
+      />
+    </div>
+  );
+};
+
+export default BrainFeedTab;
