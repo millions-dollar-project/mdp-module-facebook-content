@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/db"
+	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
 )
 
 // BrainFeedRepo wraps sqlc-generated queries for the facebook.brain_feeds
@@ -132,4 +133,126 @@ func stringOrEmpty(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// -----------------------------------------------------------------------------
+// Model-based adapter methods
+//
+// The service layer (internal/service) operates on domain models from
+// internal/models so it does not need to know about pgtype.* or sqlc JSON
+// encoding. These *Row methods convert between models and sqlc types so the
+// service can satisfy the BrainFeedStore interface via a *BrainFeedRepo.
+// -----------------------------------------------------------------------------
+
+// UpsertRow inserts (or bumps updated_at on conflict) a brain_feed from a
+// domain model and returns the persisted row as a model.
+func (r *BrainFeedRepo) UpsertRow(ctx context.Context, row models.BrainFeedRow) (models.BrainFeedRow, error) {
+	dbRow, err := r.Upsert(ctx, db.InsertBrainFeedParams{
+		CrawledPostID: row.CrawledPostID,
+		PageID:        row.PageID,
+		PageName:      strPtrOrNil(row.PageName),
+		Content:       row.Content,
+		MediaUrls:     stringSliceToBytes(row.MediaURLs),
+		VideoUrls:     stringSliceToBytes(row.VideoURLs),
+		ThumbnailUrls: stringSliceToBytes(row.ThumbnailURLs),
+		FullPicture:   strPtrOrNil(row.FullPicture),
+		MediaType:     row.MediaType,
+		Likes:         int32(row.Likes),
+		Comments:      int32(row.Comments),
+		Shares:        int32(row.Shares),
+		PostedAt:      timeToPgTime(row.PostedAt),
+		SourceUrl:     row.SourceURL,
+		Permalink:     row.Permalink,
+		Status:        row.Status,
+	})
+	if err != nil {
+		return models.BrainFeedRow{}, err
+	}
+	return facebookBrainFeedToModel(dbRow), nil
+}
+
+// UpdateBrainIDRow is the string-id version of UpdateBrainID used by the
+// service layer.
+func (r *BrainFeedRepo) UpdateBrainIDRow(ctx context.Context, id string, brainID string, status string) error {
+	return r.UpdateBrainID(ctx, stringToUUID(id), brainID, status)
+}
+
+// UpdateStatusRow is the string-id version of UpdateStatus used by the
+// service layer.
+func (r *BrainFeedRepo) UpdateStatusRow(ctx context.Context, id string, status string, errMsg string) error {
+	return r.UpdateStatus(ctx, stringToUUID(id), status, errMsg)
+}
+
+// GetByIDRow fetches a brain_feed by its UUID string and returns it as
+// a domain model.
+func (r *BrainFeedRepo) GetByIDRow(ctx context.Context, id string) (models.BrainFeedRow, error) {
+	dbRow, err := r.GetByID(ctx, stringToUUID(id))
+	if err != nil {
+		return models.BrainFeedRow{}, err
+	}
+	return facebookBrainFeedToModel(dbRow), nil
+}
+
+// ListRows returns a page of brain_feeds as domain models.
+func (r *BrainFeedRepo) ListRows(ctx context.Context, f BrainFeedFilter, page, pageSize int) ([]models.BrainFeedRow, error) {
+	dbRows, err := r.List(ctx, f, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.BrainFeedRow, 0, len(dbRows))
+	for _, dbRow := range dbRows {
+		out = append(out, facebookBrainFeedToModel(dbRow))
+	}
+	return out, nil
+}
+
+// DeleteRow removes a brain_feed by its UUID string.
+func (r *BrainFeedRepo) DeleteRow(ctx context.Context, id string) error {
+	return r.Delete(ctx, stringToUUID(id))
+}
+
+// -----------------------------------------------------------------------------
+// Conversion helpers
+// -----------------------------------------------------------------------------
+
+// strPtrOrNil returns nil for the empty string so the sqlc `*string` stays
+// NULL when the model has no value.
+func strPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// facebookBrainFeedToModel converts a sqlc-generated row into the
+// service-layer domain model.
+func facebookBrainFeedToModel(r db.FacebookBrainFeed) models.BrainFeedRow {
+	return models.BrainFeedRow{
+		ID:             uuidToString(r.ID),
+		CrawledPostID:  r.CrawledPostID,
+		PageID:         r.PageID,
+		PageName:       strDeref(r.PageName),
+		Content:        r.Content,
+		MediaURLs:      bytesToStringSlice(r.MediaUrls),
+		VideoURLs:      bytesToStringSlice(r.VideoUrls),
+		ThumbnailURLs:  bytesToStringSlice(r.ThumbnailUrls),
+		FullPicture:    strDeref(r.FullPicture),
+		MediaType:      r.MediaType,
+		Likes:          int(r.Likes),
+		Comments:       int(r.Comments),
+		Shares:         int(r.Shares),
+		PostedAt:       pgTimeToTime(r.PostedAt),
+		SourceURL:      r.SourceUrl,
+		Permalink:      r.Permalink,
+		BrainContentID: strDeref(r.BrainContentID),
+		IngestedAt:     pgTimeToTime(r.IngestedAt),
+		Status:         r.Status,
+	}
+}
+
+func strDeref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
