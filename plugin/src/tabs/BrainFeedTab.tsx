@@ -11,7 +11,7 @@
  * can call `toast.success/error/info` here. If Toast is absent the hook
  * degrades gracefully to `console.log`.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useToast } from '../components';
 import { useBrainFeed } from '../hooks/useBrainFeed';
 import { useBrainDelete } from '../hooks/useBrainDelete';
@@ -40,8 +40,6 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
   const { remove } = useBrainDelete();
   const { generate, loading: isGenerating } = useBrainGenerate();
 
-  const itemsKey = useMemo(() => data.items.map((i) => i.id).join(','), [data.items]);
-
   // Drop selection entries that scroll out of view (e.g. on page change or filter).
   useEffect(() => {
     setSelected((prev) => {
@@ -54,7 +52,7 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
       });
       return changed ? next : prev;
     });
-  }, [itemsKey]);
+  }, [data.items]);
 
   const handleToggle = (id: string) => {
     setSelected((prev) => {
@@ -80,12 +78,22 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
     // Replace confirm() with a real dialog in a follow-up.
     // eslint-disable-next-line no-alert
     if (!window.confirm(`Xoá ${ids.length} bài khỏi Brain?`)) return;
+    let failed = 0;
     for (const id of ids) {
-      try { await remove(id); } catch { /* continue */ }
+      try { await remove(id); }
+      catch (e) {
+        failed++;
+        // eslint-disable-next-line no-console
+        console.error('brain delete failed', id, e);
+      }
     }
     setSelected(new Set());
     reload();
-    toast.success(`Đã xoá ${ids.length} bài`);
+    if (failed === 0) {
+      toast.success(`Đã xoá ${ids.length} bài`);
+    } else {
+      toast.error(`Xoá ${failed}/${ids.length} bài lỗi`);
+    }
   };
 
   const handleGenerate = async () => {

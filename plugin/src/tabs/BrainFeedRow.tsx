@@ -14,7 +14,7 @@ export interface BrainFeedRowProps {
   onDelete: (id: string) => void;
 }
 
-export const BrainFeedRow: React.FC<BrainFeedRowProps> = ({ post, selected, onToggle, onDelete }) => {
+const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({ post, selected, onToggle, onDelete }) => {
   const thumb = post.fullPicture ?? post.thumbnailUrls?.[0] ?? post.mediaUrls[0];
   const preview = post.content.length > 120 ? post.content.slice(0, 120) + '…' : post.content;
   const ago = formatAgo(post.postedAt);
@@ -90,4 +90,5 @@ function formatAgo(iso: string): string {
   return `${Math.floor(diff / 86_400_000)}d`;
 }
 
+export const BrainFeedRow = React.memo(BrainFeedRowInner);
 export default BrainFeedRow;
