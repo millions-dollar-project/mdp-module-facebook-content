@@ -1,18 +1,15 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import { StudioFrame } from './StudioFrame';
 import { FormField, PillGroup, PlatformIcon } from '@mdp-private/kit-ui';
 import type { PillOption, KanbanCardData } from '@mdp-private/kit-ui';
 import { useToast } from '../components';
+import { useFBAccounts, useFBGroups } from '../hooks';
+import { RepostCrawlSection, type CrawledPost } from '../tabs/RepostCrawlSection';
 
 const SEED_CARDS: KanbanCardData[] = [
   { id: 'fb-1', title: 'Aula F75 deal roundup', desc: 'Tổng hợp deal bàn phím cơ', status: 'todo', profile: 'Affiliate Tech Page', date: '2026-06-22', platform: 'facebook' },
   { id: 'fb-2', title: 'Silent switch shootout', desc: 'So sánn silent switches 2026', status: 'progress', profile: 'Affiliate Tech Page', date: '2026-06-23', platform: 'facebook' },
   { id: 'fb-3', title: 'GenZ meme keyboard', desc: 'Meme trending keyboard post', status: 'confirm', profile: 'GenZ Viral', date: '2026-06-21', platform: 'facebook' },
-];
-
-const SEED_CRAWL_ITEMS = [
-  { title: 'Trending keyboards (30m ago)', desc: 'Top mechanical keyboards post in FB tech niches.' },
-  { title: 'Affiliate shop deals (2h ago)', desc: 'Hot deals from Shopee Vietnam affiliates.' },
 ];
 
 const PERSONA_OPTIONS: PillOption[] = [
@@ -181,7 +178,6 @@ function FacebookBrain({
 export function FacebookView(): React.ReactElement {
   const [activeTab, setActiveTab] = useState('brain');
   const [cards, setCards] = useState<KanbanCardData[]>(SEED_CARDS);
-  const [crawlItems, setCrawlItems] = useState(SEED_CRAWL_ITEMS);
   const toast = useToast();
 
   const [prompt, setPrompt] = useState('');
@@ -190,11 +186,6 @@ export function FacebookView(): React.ReactElement {
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewText, setPreviewText] = useState('');
   const [showMedia, setShowMedia] = useState('none');
-
-  const [isCrawling, setIsCrawling] = useState(false);
-  const [crawlProgress, setCrawlProgress] = useState(0);
-
-  const crawlIntervalRef = useRef<any>(null);
 
   const handleCompose = () => {
     if (!prompt.trim()) return;
@@ -241,29 +232,6 @@ export function FacebookView(): React.ReactElement {
     setActiveTab('kanban');
   };
 
-  const handleRunCrawl = (target: string) => {
-    if (isCrawling) return;
-    setIsCrawling(true);
-    setCrawlProgress(0);
-
-    let progress = 0;
-    crawlIntervalRef.current = setInterval(() => {
-      progress += 10;
-      setCrawlProgress(progress);
-      if (progress >= 100) {
-        if (crawlIntervalRef.current) clearInterval(crawlIntervalRef.current);
-        setIsCrawling(false);
-        setCrawlItems((prev) => [
-          {
-            title: `Scraped Competitor Alert`,
-            desc: `Extracted trending topics from target: ${target || 'https://facebook.com/tech_reviewer_vietnam'}. Outlines ready to draft.`,
-          },
-          ...prev,
-        ]);
-      }
-    }, 200);
-  };
-
   const handleGoToCrawl = () => {
     setActiveTab('crawl');
   };
@@ -273,6 +241,18 @@ export function FacebookView(): React.ReactElement {
   };
 
   const handleOpenBrainFeed = React.useCallback(() => setActiveTab('brain-feed'), []);
+
+  // RepostCrawlSection needs real account/group lists to drive its
+  // crawl form + schedule modal. We pass data straight through.
+  const { data: accounts } = useFBAccounts();
+  const { data: groups } = useFBGroups();
+
+  // TODO: wire to a real draft modal (e.g. RepostPlanModal) once the
+  // user picks a crawled post. For now we just toast so the click is
+  // visible to confirm the integration is alive.
+  const handleSchedule = useCallback((post: CrawledPost) => {
+    toast.info(`Đã chọn bài: ${post.permalink}`);
+  }, [toast]);
 
   // Bridge for legacy mounts of <RepostCrawlSection /> (e.g. inside
   // RepostTab) where the parent can't easily pass onOpenBrainFeed down.
@@ -306,13 +286,17 @@ export function FacebookView(): React.ReactElement {
         />
       }
       kanbanCards={cards}
-      crawlItems={crawlItems}
-      isCrawling={isCrawling}
-      crawlProgress={crawlProgress}
-      onRunCrawl={handleRunCrawl}
       onGoToCrawl={handleGoToCrawl}
       onDraftsReady={handleDraftsReady}
       onOpenBrainFeed={handleOpenBrainFeed}
+      crawlSlot={({ onOpenBrainFeed: slotOpenBrainFeed }) => (
+        <RepostCrawlSection
+          accounts={accounts}
+          groups={groups}
+          onSchedule={handleSchedule}
+          onOpenBrainFeed={slotOpenBrainFeed}
+        />
+      )}
     />
   );
 }
