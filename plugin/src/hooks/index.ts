@@ -37,3 +37,9 @@ export type { UseRepostQueueState } from './useRepostQueue';
 
 export { useAccountLogin } from './useAccountLogin';
 export type { UseAccountLoginState } from './useAccountLogin';
+
+export { useBrainFeed } from './useBrainFeed';
+export type { UseBrainFeedParams } from './useBrainFeed';
+export { useBrainIngest } from './useBrainIngest';
+export { useBrainGenerate } from './useBrainGenerate';
+export { useBrainDelete } from './useBrainDelete';
