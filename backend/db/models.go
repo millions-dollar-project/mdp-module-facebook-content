@@ -41,6 +41,46 @@ type FacebookAiReplied struct {
 	RepliedAt         pgtype.Timestamptz `json:"replied_at"`
 }
 
+type FacebookBrainDraft struct {
+	ID                pgtype.UUID        `json:"id"`
+	FeedID            pgtype.UUID        `json:"feed_id"`
+	Content           string             `json:"content"`
+	ProvenanceID      string             `json:"provenance_id"`
+	ValidationStatus  string             `json:"validation_status"`
+	ValidationDetails []byte             `json:"validation_details"`
+	Warnings          []byte             `json:"warnings"`
+	KanbanJobID       *string            `json:"kanban_job_id"`
+	Status            string             `json:"status"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type FacebookBrainFeed struct {
+	ID             pgtype.UUID        `json:"id"`
+	CrawledPostID  string             `json:"crawled_post_id"`
+	PageID         string             `json:"page_id"`
+	PageName       *string            `json:"page_name"`
+	Content        string             `json:"content"`
+	MediaUrls      []byte             `json:"media_urls"`
+	VideoUrls      []byte             `json:"video_urls"`
+	ThumbnailUrls  []byte             `json:"thumbnail_urls"`
+	FullPicture    *string            `json:"full_picture"`
+	MediaType      string             `json:"media_type"`
+	Likes          int32              `json:"likes"`
+	Comments       int32              `json:"comments"`
+	Shares         int32              `json:"shares"`
+	PostedAt       pgtype.Timestamptz `json:"posted_at"`
+	SourceUrl      string             `json:"source_url"`
+	Permalink      string             `json:"permalink"`
+	BrainContentID *string            `json:"brain_content_id"`
+	IngestedAt     pgtype.Timestamptz `json:"ingested_at"`
+	ErrorMessage   *string            `json:"error_message"`
+	Status         string             `json:"status"`
+	RetryCount     int32              `json:"retry_count"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type FacebookComment struct {
 	ID                 string             `json:"id"`
 	PostID             string             `json:"post_id"`
