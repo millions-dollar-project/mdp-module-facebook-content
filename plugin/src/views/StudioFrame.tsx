@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StudioTabs, KanbanBoard, FormField, DoubleBezel, BentoCard } from '@mdp-private/kit-ui';
 import type { KanbanCardData, KanbanColumn } from '@mdp-private/kit-ui';
+import { BrainFeedTab } from '../tabs/BrainFeedTab';
 
 export interface CrawlItem {
   title: string;
@@ -17,6 +18,8 @@ export interface StudioFrameProps {
   crawlProgress?: number;
   activeTab?: string;
   onTabChange?: (tab: string) => void;
+  onGoToCrawl?: () => void;
+  onDraftsReady?: (feedIds: string[]) => void;
 }
 
 const KANBAN_COLUMNS: KanbanColumn[] = [
@@ -36,6 +39,8 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
     crawlProgress = 0,
     activeTab,
     onTabChange,
+    onGoToCrawl,
+    onDraftsReady,
   } = props;
 
   const [localActive, setLocalActive] = useState('brain');
@@ -53,6 +58,7 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
           { id: 'brain', label: 'Composer' },
           { id: 'kanban', label: 'Kanban' },
           { id: 'crawl', label: 'Crawl' },
+          { id: 'brain-feed', label: 'Brain Feed' },
         ]}
       />
 
@@ -112,6 +118,14 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
               </DoubleBezel>
             </BentoCard>
           </div>
+        </div>
+      )}
+      {active === 'brain-feed' && (
+        <div className="studio-pane active" data-testid="brain-feed-pane">
+          <BrainFeedTab
+            onGoToCrawl={() => onGoToCrawl?.() ?? setActive('crawl')}
+            onDraftsReady={(ids) => onDraftsReady?.(ids)}
+          />
         </div>
       )}
     </div>

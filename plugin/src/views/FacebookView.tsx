@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { StudioFrame } from './StudioFrame';
 import { FormField, PillGroup, PlatformIcon } from '@mdp-private/kit-ui';
 import type { PillOption, KanbanCardData } from '@mdp-private/kit-ui';
+import { useToast } from '../components';
 
 const SEED_CARDS: KanbanCardData[] = [
   { id: 'fb-1', title: 'Aula F75 deal roundup', desc: 'Tổng hợp deal bàn phím cơ', status: 'todo', profile: 'Affiliate Tech Page', date: '2026-06-22', platform: 'facebook' },
@@ -181,6 +182,7 @@ export function FacebookView(): React.ReactElement {
   const [activeTab, setActiveTab] = useState('brain');
   const [cards, setCards] = useState<KanbanCardData[]>(SEED_CARDS);
   const [crawlItems, setCrawlItems] = useState(SEED_CRAWL_ITEMS);
+  const toast = useToast();
 
   const [prompt, setPrompt] = useState('');
   const [persona, setPersona] = useState('tech');
@@ -262,6 +264,14 @@ export function FacebookView(): React.ReactElement {
     }, 200);
   };
 
+  const handleGoToCrawl = () => {
+    setActiveTab('crawl');
+  };
+
+  const handleDraftsReady = (_feedIds: string[]) => {
+    toast.success('Đã generate drafts — mở tab Kanban để xem.');
+  };
+
   return (
     <StudioFrame
       activeTab={activeTab}
@@ -287,6 +297,8 @@ export function FacebookView(): React.ReactElement {
       isCrawling={isCrawling}
       crawlProgress={crawlProgress}
       onRunCrawl={handleRunCrawl}
+      onGoToCrawl={handleGoToCrawl}
+      onDraftsReady={handleDraftsReady}
     />
   );
 }
