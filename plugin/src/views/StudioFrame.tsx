@@ -20,6 +20,19 @@ export interface StudioFrameProps {
   onTabChange?: (tab: string) => void;
   onGoToCrawl?: () => void;
   onDraftsReady?: (feedIds: string[]) => void;
+  /**
+   * Callback that switches the parent tab to "Brain Feed". Surfaced
+   * here so a child of the Crawl pane (e.g. `RepostCrawlSection`) can
+   * trigger a tab change after auto-ingesting crawled posts.
+   */
+  onOpenBrainFeed?: () => void;
+  /**
+   * Custom slot to render inside the Crawl pane. When provided, this
+   * replaces the default mock crawl UI (`Crawl Configuration` +
+   * `Crawled Feeds & Source Stream`). The render function receives
+   * `onOpenBrainFeed` so the slot can switch tabs after auto-ingest.
+   */
+  crawlSlot?: (helpers: { onOpenBrainFeed?: () => void }) => React.ReactNode;
 }
 
 const KANBAN_COLUMNS: KanbanColumn[] = [
@@ -41,6 +54,8 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
     onTabChange,
     onGoToCrawl,
     onDraftsReady,
+    onOpenBrainFeed,
+    crawlSlot,
   } = props;
 
   const [localActive, setLocalActive] = useState('brain');
@@ -70,54 +85,56 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
       )}
       {active === 'crawl' && (
         <div className="studio-pane active" data-testid="crawl-pane">
-          <div className="bento-grid">
-            <BentoCard span={6}>
-              <DoubleBezel>
-                <h3>Crawl Configuration</h3>
-                <FormField
-                  label="Target Page URL / ID"
-                  value={crawlTarget}
-                  onChange={setCrawlTarget}
-                  placeholder="https://facebook.com/..."
-                />
-                {isCrawling && (
-                  <div style={{ margin: '12px 0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                      <span>Scraping profiles...</span>
-                      <span>{crawlProgress}%</span>
-                    </div>
-                    <div style={{ height: '6px', background: 'rgba(0,0,0,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${crawlProgress}%`, background: 'var(--primary)', transition: 'width 0.1s linear' }} />
-                    </div>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={isCrawling}
-                  onClick={() => onRunCrawl?.(crawlTarget)}
-                >
-                  Run Discovery Crawl
-                </button>
-              </DoubleBezel>
-            </BentoCard>
-            <BentoCard span={6}>
-              <DoubleBezel>
-                <h3>Crawled Feeds & Source Stream</h3>
-                <div className="crawler-list" data-testid="crawl-list">
-                  {crawlItems.map((item, i) => (
-                    <div key={i} className="crawl-item">
-                      <span className="material-symbols-outlined">rss_feed</span>
-                      <div className="crawl-item-content">
-                        <h5>{item.title}</h5>
-                        <p>{item.desc}</p>
+          {crawlSlot ? crawlSlot({ onOpenBrainFeed }) : (
+            <div className="bento-grid">
+              <BentoCard span={6}>
+                <DoubleBezel>
+                  <h3>Crawl Configuration</h3>
+                  <FormField
+                    label="Target Page URL / ID"
+                    value={crawlTarget}
+                    onChange={setCrawlTarget}
+                    placeholder="https://facebook.com/..."
+                  />
+                  {isCrawling && (
+                    <div style={{ margin: '12px 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+                        <span>Scraping profiles...</span>
+                        <span>{crawlProgress}%</span>
+                      </div>
+                      <div style={{ height: '6px', background: 'rgba(0,0,0,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${crawlProgress}%`, background: 'var(--primary)', transition: 'width 0.1s linear' }} />
                       </div>
                     </div>
-                  ))}
-                </div>
-              </DoubleBezel>
-            </BentoCard>
-          </div>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={isCrawling}
+                    onClick={() => onRunCrawl?.(crawlTarget)}
+                  >
+                    Run Discovery Crawl
+                  </button>
+                </DoubleBezel>
+              </BentoCard>
+              <BentoCard span={6}>
+                <DoubleBezel>
+                  <h3>Crawled Feeds & Source Stream</h3>
+                  <div className="crawler-list" data-testid="crawl-list">
+                    {crawlItems.map((item, i) => (
+                      <div key={i} className="crawl-item">
+                        <span className="material-symbols-outlined">rss_feed</span>
+                        <div className="crawl-item-content">
+                          <h5>{item.title}</h5>
+                          <p>{item.desc}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </DoubleBezel>
+              </BentoCard>
+            </div>
+          )}
         </div>
       )}
       {active === 'brain-feed' && (

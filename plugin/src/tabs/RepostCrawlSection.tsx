@@ -26,6 +26,7 @@ import { Button, Card, FormField, Input, Textarea, useToast } from '../component
 import { fbFetch } from '../lib/api';
 import { openExternal } from '../lib/external';
 import type { FBAccount } from '../lib/types';
+import { useBrainIngest } from '../hooks/useBrainIngest';
 
 export interface CrawledPost {
   id: string;
@@ -57,6 +58,11 @@ interface Props {
   accounts: FBAccount[];
   groups: { id: string; groupId: string; name?: string | null }[];
   onSchedule: (post: CrawledPost) => void;
+  /**
+   * Optional callback to switch the parent tab to "Brain Feed".
+   * Wires the "Mở Brain Feed" chip after a successful auto-ingest.
+   */
+  onOpenBrainFeed?: () => void;
 }
 
 const PREVIEW_CHARS = 200;
@@ -95,7 +101,7 @@ const parseDate = (s: string | number | null | undefined): Date | null => {
   return isNaN(d.getTime()) || d.getTime() <= 0 ? null : d;
 };
 
-export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedule }) => {
+export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedule, onOpenBrainFeed }) => {
   const [pageUrl, setPageUrl] = React.useState('');
   const [maxPosts, setMaxPosts] = React.useState(10);
   // Tự fill ngày hiện tại vào "Từ ngày" — user yêu cầu mặc định là hôm nay.
@@ -111,7 +117,66 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   const [editingContent, setEditingContent] = React.useState('');
   // Bài nào đang mở rộng (mặc định tất cả collapse)
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+  // Count of posts the last auto-ingest successfully pushed to Brain.
+  // Drives the "✅ Đã đẩy N bài vào Brain · Mở Brain Feed →" chip below
+  // the crawl results. 0 (or not-yet-set) hides the chip.
+  const [lastIngestedCount, setLastIngestedCount] = React.useState<number>(0);
   const toast = useToast();
+  const { ingest } = useBrainIngest();
+
+  /**
+   * Push freshly crawled posts to Brain. Always-on per the T13 plan
+   * (D7: no toggle). Failures are surfaced as a toast but never abort
+   * the crawl flow — the user already has the posts on screen.
+   */
+  const autoIngestPosts = React.useCallback(
+    async (toIngest: CrawledPost[]) => {
+      if (toIngest.length === 0) {
+        setLastIngestedCount(0);
+        return;
+      }
+      try {
+        const res = await ingest({
+          posts: toIngest.map((p) => ({
+            sourceURL: p.permalink,
+            pageID: p.pageId,
+            content: p.content ?? '',
+            mediaURLs: p.mediaUrls ?? [],
+            videoURLs: p.videoUrls ?? [],
+            thumbnailURLs: p.thumbnailUrls,
+            fullPicture: p.fullPicture,
+            mediaType: p.mediaType ?? '',
+            likes: p.likes ?? 0,
+            comments: p.comments ?? 0,
+            shares: p.shares ?? 0,
+            postedAt: p.postedAt ?? '',
+            permalink: p.permalink ?? '',
+          })),
+        });
+        if (res.ingested > 0) {
+          toast.success(`Đã đẩy ${res.ingested} bài vào Brain`);
+        }
+        if (res.failed > 0) {
+          toast.error(`${res.failed} bài lỗi ingest — xem Brain Feed`);
+        }
+        if (res.ingested === 0 && res.failed === 0 && res.skipped > 0) {
+          // All posts skipped (e.g. duplicates already in feed). Don't
+          // show the chip — user didn't actually push new content.
+          toast.info(`Bỏ qua ${res.skipped} bài trùng — không có bài mới vào Brain`);
+          setLastIngestedCount(0);
+          return;
+        }
+        setLastIngestedCount(res.ingested);
+      } catch (e) {
+        // Network/MCP failure: crawl already succeeded, just note the
+        // ingest problem. The user can retry by clicking "Thu thập" again.
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.error(`Ingest Brain lỗi: ${msg}`);
+        setLastIngestedCount(0);
+      }
+    },
+    [ingest, toast],
+  );
 
   React.useEffect(() => {
     if (!selectedAccountId && accounts.length > 0) {
@@ -194,12 +259,17 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
       setExpanded(new Set());
       if (data.length === 0) {
         toast.warning('Không tìm thấy bài nào — thử URL khác hoặc tăng "Số bài tối đa".');
+        setLastIngestedCount(0);
       } else if (fellBack) {
         toast.warning(
           `Không có bài từ ${untilDate} trở đi. Đã lấy ${data.length} bài mới nhất thay thế.`
         );
+        // Auto-ingest into Brain regardless of which path produced the
+        // posts (smart-fallback or primary filter) — the data is real.
+        void autoIngestPosts(data);
       } else {
         toast.success(`Đã thu thập ${data.length} bài viết`);
+        void autoIngestPosts(data);
       }
     } catch (e) {
       toast.error(`Lỗi crawl: ${e instanceof Error ? e.message : String(e)}`);
@@ -236,8 +306,10 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
       setExpanded(new Set());
       if (data.length === 0) {
         toast.warning('Không tìm thấy bài nào — thử URL khác hoặc tăng "Số bài tối đa".');
+        setLastIngestedCount(0);
       } else {
         toast.success(`Đã thu thập ${data.length} bài mới nhất (bỏ lọc ngày)`);
+        void autoIngestPosts(data);
       }
     } catch (e) {
       toast.error(`Lỗi crawl: ${e instanceof Error ? e.message : String(e)}`);
@@ -442,6 +514,47 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
             ))}
           </ul>
         </Card>
+      )}
+
+      {/* Chip xác nhận auto-ingest thành công — hiện sau khi crawl đẩy
+          được ít nhất 1 bài vào Brain. Click "Mở Brain Feed" chuyển tab
+          (chỉ hoạt động khi parent truyền onOpenBrainFeed). Ẩn trong lúc
+          crawl đang chạy để tránh chớp nháy nút. */}
+      {lastIngestedCount > 0 && !loading && (
+        <div
+          data-testid="brain-ingest-chip"
+          style={{
+            marginTop: 12,
+            padding: '8px 12px',
+            border: '1px solid #bbf7d0',
+            borderRadius: 4,
+            background: '#f0fdf4',
+            fontSize: 13,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span>✅ Đã đẩy {lastIngestedCount} bài vào Brain</span>
+          {onOpenBrainFeed && (
+            <button
+              type="button"
+              onClick={onOpenBrainFeed}
+              data-testid="open-brain-feed-chip"
+              style={{
+                marginLeft: 'auto',
+                padding: '4px 10px',
+                background: 'transparent',
+                border: 'none',
+                color: '#15803d',
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+            >
+              Mở Brain Feed →
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

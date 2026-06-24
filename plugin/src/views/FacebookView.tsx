@@ -272,6 +272,8 @@ export function FacebookView(): React.ReactElement {
     toast.success('Đã generate drafts — mở tab Kanban để xem.');
   };
 
+  const handleOpenBrainFeed = React.useCallback(() => setActiveTab('brain-feed'), []);
+
   return (
     <StudioFrame
       activeTab={activeTab}
@@ -299,6 +301,7 @@ export function FacebookView(): React.ReactElement {
       onRunCrawl={handleRunCrawl}
       onGoToCrawl={handleGoToCrawl}
       onDraftsReady={handleDraftsReady}
+      onOpenBrainFeed={handleOpenBrainFeed}
     />
   );
 }
