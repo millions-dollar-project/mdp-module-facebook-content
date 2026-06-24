@@ -49,6 +49,36 @@ func (r *BrainDraftRepo) MarkPushed(ctx context.Context, id pgtype.UUID, kanbanJ
 	})
 }
 
+// BrainDraftFilter holds optional filter values for Count. A nil Status
+// means "count all drafts"; a non-nil Status means "count drafts where
+// status = the value".
+type BrainDraftFilter struct {
+	Status *string
+}
+
+// Count returns the number of brain_drafts matching the filter.
+func (r *BrainDraftRepo) Count(ctx context.Context, f BrainDraftFilter) (int64, error) {
+	return r.q.CountBrainDrafts(ctx, db.CountBrainDraftsParams{
+		StatusFilter: stringOrEmpty(f.Status),
+	})
+}
+
+// CountDraftsByStatus returns draft counts grouped by status. Used by
+// the BrainStatsService to compute dashboard overview counters.
+func (r *BrainDraftRepo) CountDraftsByStatus(ctx context.Context) (map[string]int64, error) {
+	statuses := []string{"pending", "approved", "rejected", "blocked"}
+	out := map[string]int64{}
+	for _, st := range statuses {
+		s := st
+		n, err := r.Count(ctx, BrainDraftFilter{Status: &s})
+		if err != nil {
+			return nil, err
+		}
+		out[st] = n
+	}
+	return out, nil
+}
+
 // -----------------------------------------------------------------------------
 // Model-based adapter methods
 //

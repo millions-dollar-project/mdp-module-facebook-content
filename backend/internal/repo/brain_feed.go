@@ -71,6 +71,22 @@ func (r *BrainFeedRepo) Count(ctx context.Context, f BrainFeedFilter) (int64, er
 	return r.q.CountBrainFeeds(ctx, f.toCountParams())
 }
 
+// CountByStatus returns feed counts grouped by status. Used by the
+// BrainStatsService to compute dashboard overview counters.
+func (r *BrainFeedRepo) CountByStatus(ctx context.Context) (map[string]int64, error) {
+	statuses := []string{"ingested", "generated", "pushed", "failed"}
+	out := map[string]int64{}
+	for _, st := range statuses {
+		s := st
+		n, err := r.Count(ctx, BrainFeedFilter{Status: &s})
+		if err != nil {
+			return nil, err
+		}
+		out[st] = n
+	}
+	return out, nil
+}
+
 // GetByID fetches a single brain_feed by its UUID.
 func (r *BrainFeedRepo) GetByID(ctx context.Context, id pgtype.UUID) (db.FacebookBrainFeed, error) {
 	return r.q.GetBrainFeedByID(ctx, id)

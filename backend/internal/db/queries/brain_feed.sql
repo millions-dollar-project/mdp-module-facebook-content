@@ -96,3 +96,8 @@ ORDER BY created_at DESC;
 UPDATE facebook.brain_drafts
 SET kanban_job_id = $2, status = 'pushed', updated_at = NOW()
 WHERE id = $1;
+
+-- name: CountBrainDrafts :one
+SELECT COUNT(*)::bigint
+FROM facebook.brain_drafts
+WHERE ($1::text = '' OR status = $1);
