@@ -75,3 +75,24 @@ SELECT id, crawled_post_id, page_id, page_name, content, media_urls, video_urls,
        error_message, status, retry_count, created_at, updated_at
 FROM facebook.brain_feeds
 WHERE id = ANY($1::uuid[]);
+
+-- name: InsertBrainDraft :one
+INSERT INTO facebook.brain_drafts (
+  feed_id, content, provenance_id, validation_status, validation_details, warnings, status
+) VALUES (
+  $1, $2, $3, $4, $5, $6, $7
+)
+RETURNING id, feed_id, content, provenance_id, validation_status, validation_details,
+          warnings, kanban_job_id, status, created_at, updated_at;
+
+-- name: ListBrainDraftsByFeedIDs :many
+SELECT id, feed_id, content, provenance_id, validation_status, validation_details,
+       warnings, kanban_job_id, status, created_at, updated_at
+FROM facebook.brain_drafts
+WHERE feed_id = ANY($1::uuid[])
+ORDER BY created_at DESC;
+
+-- name: UpdateBrainDraftKanbanJob :exec
+UPDATE facebook.brain_drafts
+SET kanban_job_id = $2, status = 'pushed', updated_at = NOW()
+WHERE id = $1;
