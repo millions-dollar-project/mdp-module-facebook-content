@@ -3,10 +3,13 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/db"
@@ -14,6 +17,8 @@ import (
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/api/handlers"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/api/middleware"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/fb"
+	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/mcp"
+	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/repo"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/service"
 )
@@ -38,6 +43,7 @@ type RouterDeps struct {
 	SidecarURL     string
 	Logger         *slog.Logger
 	CommentMonitor *service.CommentMonitor
+	BrainBinaryPath string
 }
 
 // NewRouter returns a fully-wired *gin.Engine. Middleware order:
@@ -113,6 +119,27 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	analyticsRepo := repo.NewAnalyticsRepo(queries)
 	analyticsSvc := service.NewAnalytics(analyticsRepo)
 	analyticsH := handlers.NewAnalytics(analyticsSvc)
+
+	// Brain feed (mdp-brain MCP subprocess). The client only spins up
+	// when BrainBinaryPath is non-empty — empty means "brain not
+	// installed" and the routes will 503 with a clear message instead
+	// of crash-looping on a missing binary.
+	brainFeedRepo := repo.NewBrainFeedRepo(queries)
+	brainDraftRepo := repo.NewBrainDraftRepo(queries)
+	// The repos expose *Row methods that operate on domain models.
+	// The service interface wants *string ids, so wrap the repos in
+	// thin adapters that close the gap.
+	brainFeedStore := brainFeedStoreAdapter{repo: brainFeedRepo}
+	brainDraftStore := brainDraftStoreAdapter{repo: brainDraftRepo}
+	var brainClient *mcp.BrainClient
+	if d.BrainBinaryPath != "" {
+		brainClient = mcp.NewBrainClient(d.BrainBinaryPath, 30*time.Second)
+	}
+	var brainSvc *service.BrainFeedService
+	if brainClient != nil {
+		brainSvc = service.NewBrainFeedService(brainFeedStore, brainDraftStore, brainClient, 5)
+	}
+	brainH := handlers.NewBrainFeedHandler(brainSvc, brainSvc, brainSvc)
 
 	// Prompts / Hashtags / Video config
 	promptsRepo := repo.NewPromptsRepo(queries)
@@ -246,6 +273,12 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		v1.GET("/analytics", analyticsH.GetAnalytics)
 		v1.GET("/daily-stats", analyticsH.GetDailyStats)
 
+		// Brain feed / ingest / generate
+		v1.GET("/brain/feed", brainH.List)
+		v1.DELETE("/brain/feed/:id", brainH.Delete)
+		v1.POST("/brain/ingest", brainH.Ingest)
+		v1.POST("/brain/generate", brainH.Generate)
+
 		// Back-compat with the original skeleton — keep `/posts` for the
 		// plugin's historical hooks.
 		v1.GET("/posts", func(c *gin.Context) {
@@ -259,4 +292,63 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	r.POST("/webhook", webhookH.ReceivePOST)
 
 	return r
+}
+
+// ─── brain feed store adapters ───────────────────────────────────────
+//
+// The service layer (internal/service) operates on domain models and
+// string ids. The repos (internal/repo) take sqlc types and pgtype.UUID
+// for the primary key. These tiny adapters close the gap so the router
+// can wire the service without leaking pgtype into router.go.
+
+type brainFeedStoreAdapter struct {
+	repo *repo.BrainFeedRepo
+}
+
+func (a brainFeedStoreAdapter) Upsert(ctx context.Context, row models.BrainFeedRow) (models.BrainFeedRow, error) {
+	return a.repo.UpsertRow(ctx, row)
+}
+
+func (a brainFeedStoreAdapter) UpdateBrainID(ctx context.Context, id string, brainID string, status string) error {
+	return a.repo.UpdateBrainIDRow(ctx, id, brainID, status)
+}
+
+func (a brainFeedStoreAdapter) UpdateStatus(ctx context.Context, id string, status string, errMsg string) error {
+	return a.repo.UpdateStatusRow(ctx, id, status, errMsg)
+}
+
+func (a brainFeedStoreAdapter) GetByID(ctx context.Context, id string) (models.BrainFeedRow, error) {
+	return a.repo.GetByIDRow(ctx, id)
+}
+
+func (a brainFeedStoreAdapter) List(ctx context.Context, f repo.BrainFeedFilter, page, pageSize int) ([]models.BrainFeedRow, error) {
+	return a.repo.ListRows(ctx, f, page, pageSize)
+}
+
+func (a brainFeedStoreAdapter) Count(ctx context.Context, f repo.BrainFeedFilter) (int64, error) {
+	return a.repo.Count(ctx, f)
+}
+
+func (a brainFeedStoreAdapter) Delete(ctx context.Context, id string) error {
+	return a.repo.DeleteRow(ctx, id)
+}
+
+type brainDraftStoreAdapter struct {
+	repo *repo.BrainDraftRepo
+}
+
+func (a brainDraftStoreAdapter) Insert(ctx context.Context, row models.BrainDraftRow) (models.BrainDraftRow, error) {
+	return a.repo.InsertRow(ctx, row)
+}
+
+func (a brainDraftStoreAdapter) MarkPushed(ctx context.Context, id string, kanbanJobID string) error {
+	return a.repo.MarkPushed(ctx, pgtypeUUIDFromString(id), kanbanJobID)
+}
+
+// pgtypeUUIDFromString mirrors the small helper in repo/helpers.go so
+// we do not need to add a public export there for a single call site.
+func pgtypeUUIDFromString(s string) pgtype.UUID {
+	var id pgtype.UUID
+	_ = id.Scan(s)
+	return id
 }

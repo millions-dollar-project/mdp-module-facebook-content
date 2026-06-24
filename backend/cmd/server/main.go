@@ -132,19 +132,20 @@ func main() {
 	// HTTP server
 	gin.SetMode(gin.ReleaseMode)
 	router := api.NewRouter(api.RouterDeps{
-		Pool:           pool,
-		Pages:          pagesRepo,
-		Queue:          queueRepo,
-		Sched:          schedRepo,
-		Posts:          postsRepo,
-		Config:         configRepo,
-		Graph:          graph,
-		OpenAIKey:      cfg.OpenAIAPIKey,
-		AppSecret:      cfg.FacebookAppSecret,
-		VerifyToken:    cfg.FacebookVerifyToken,
-		SidecarURL:     cfg.SidecarURL,
-		Logger:         log,
-		CommentMonitor: commentMonitor,
+		Pool:            pool,
+		Pages:           pagesRepo,
+		Queue:           queueRepo,
+		Sched:           schedRepo,
+		Posts:           postsRepo,
+		Config:          configRepo,
+		Graph:           graph,
+		OpenAIKey:       cfg.OpenAIAPIKey,
+		AppSecret:       cfg.FacebookAppSecret,
+		VerifyToken:     cfg.FacebookVerifyToken,
+		SidecarURL:      cfg.SidecarURL,
+		Logger:          log,
+		CommentMonitor:  commentMonitor,
+		BrainBinaryPath: os.Getenv("MDP_BRAIN_BIN"),
 	})
 	srv := &http.Server{
 		Addr:              cfg.Port,
