@@ -274,6 +274,17 @@ export function FacebookView(): React.ReactElement {
 
   const handleOpenBrainFeed = React.useCallback(() => setActiveTab('brain-feed'), []);
 
+  // Bridge for legacy mounts of <RepostCrawlSection /> (e.g. inside
+  // RepostTab) where the parent can't easily pass onOpenBrainFeed down.
+  // The crawl section's "Mở Brain Feed" chip dispatches this event;
+  // we listen here and switch to the Brain Feed tab.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => setActiveTab('brain-feed');
+    window.addEventListener('mdp:open-brain-feed', handler);
+    return () => window.removeEventListener('mdp:open-brain-feed', handler);
+  }, []);
+
   return (
     <StudioFrame
       activeTab={activeTab}

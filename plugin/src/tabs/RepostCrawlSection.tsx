@@ -536,24 +536,33 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
           }}
         >
           <span>✅ Đã đẩy {lastIngestedCount} bài vào Brain</span>
-          {onOpenBrainFeed && (
-            <button
-              type="button"
-              onClick={onOpenBrainFeed}
-              data-testid="open-brain-feed-chip"
-              style={{
-                marginLeft: 'auto',
-                padding: '4px 10px',
-                background: 'transparent',
-                border: 'none',
-                color: '#15803d',
-                cursor: 'pointer',
-                fontWeight: 500,
-              }}
-            >
-              Mở Brain Feed →
-            </button>
-          )}
+          <button
+            type="button"
+            // Prefer the host's onOpenBrainFeed prop when supplied (e.g.
+            // future crawlSlot wiring through StudioFrame). Fall back to a
+            // window event so the chip still works when mounted via the
+            // legacy RepostTab path — FacebookView listens for
+            // `mdp:open-brain-feed` and switches to the Brain Feed tab.
+            onClick={() => {
+              if (onOpenBrainFeed) {
+                onOpenBrainFeed();
+              } else if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('mdp:open-brain-feed'));
+              }
+            }}
+            data-testid="open-brain-feed-chip"
+            style={{
+              marginLeft: 'auto',
+              padding: '4px 10px',
+              background: 'transparent',
+              border: 'none',
+              color: '#15803d',
+              cursor: 'pointer',
+              fontWeight: 500,
+            }}
+          >
+            Mở Brain Feed →
+          </button>
         </div>
       )}
     </div>
