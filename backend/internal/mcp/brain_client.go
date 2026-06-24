@@ -125,7 +125,11 @@ func (c *BrainClient) ensure(ctx context.Context) error {
 	if c.stdin != nil {
 		return nil
 	}
-	cmd := exec.CommandContext(ctx, c.binary)
+	// Use context.Background() for the subprocess lifecycle so that a
+	// per-request context cancellation does not kill the long-lived
+	// brain daemon mid-conversation. The request context is still used
+	// for per-call timeouts in call().
+	cmd := exec.CommandContext(context.Background(), c.binary)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("%w: stdin pipe: %v", ErrBrainClient, err)
