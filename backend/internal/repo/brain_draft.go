@@ -2,10 +2,12 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/db"
+	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
 )
 
 // BrainDraftRepo wraps sqlc-generated queries for the facebook.brain_drafts
@@ -45,4 +47,70 @@ func (r *BrainDraftRepo) MarkPushed(ctx context.Context, id pgtype.UUID, kanbanJ
 		ID:          id,
 		KanbanJobID: jobID,
 	})
+}
+
+// -----------------------------------------------------------------------------
+// Model-based adapter methods
+//
+// The service layer (internal/service) operates on domain models from
+// internal/models so it does not need to know about pgtype.* or sqlc JSON
+// encoding. These *Row methods convert between models and sqlc types so the
+// service can satisfy the BrainDraftStore interface via a *BrainDraftRepo.
+// -----------------------------------------------------------------------------
+
+// InsertRow inserts a brain_draft from a domain model and returns the
+// persisted row as a model. ValidationDetails and Warnings default to empty
+// JSON arrays when not supplied.
+func (r *BrainDraftRepo) InsertRow(ctx context.Context, row models.BrainDraftRow) (models.BrainDraftRow, error) {
+	dbRow, err := r.Insert(ctx, db.InsertBrainDraftParams{
+		FeedID:            stringToUUID(row.FeedID),
+		Content:           row.Content,
+		ProvenanceID:      row.ProvenanceID,
+		ValidationStatus:  row.ValidationStatus,
+		ValidationDetails: stringSliceToBytes(nil), // default empty array
+		Warnings:          stringSliceToBytes(row.Warnings),
+		Status:            row.Status,
+	})
+	if err != nil {
+		return models.BrainDraftRow{}, err
+	}
+	return facebookBrainDraftToModel(dbRow), nil
+}
+
+// MarkPushedRow is the string-id version of MarkPushed used by the service layer.
+func (r *BrainDraftRepo) MarkPushedRow(ctx context.Context, id string, kanbanJobID string) error {
+	uid := stringToUUID(id)
+	return r.MarkPushed(ctx, uid, kanbanJobID)
+}
+
+// -----------------------------------------------------------------------------
+// Conversion helpers
+// -----------------------------------------------------------------------------
+
+// facebookBrainDraftToModel converts a sqlc-generated row into the
+// service-layer domain model.
+func facebookBrainDraftToModel(r db.FacebookBrainDraft) models.BrainDraftRow {
+	return models.BrainDraftRow{
+		ID:               uuidToString(r.ID),
+		FeedID:           uuidToString(r.FeedID),
+		Content:          r.Content,
+		ProvenanceID:     r.ProvenanceID,
+		ValidationStatus: r.ValidationStatus,
+		Warnings:         bytesToStringSlice(r.Warnings),
+		KanbanJobID:      strDeref(r.KanbanJobID),
+		Status:           r.Status,
+	}
+}
+
+// jsonRawOrEmpty ensures we always pass valid JSON bytes to jsonb columns.
+func jsonRawOrEmpty(b []byte) []byte {
+	if len(b) == 0 {
+		return []byte("[]")
+	}
+	// Validate it's actually JSON; fall back to "[]" if not.
+	var x interface{}
+	if err := json.Unmarshal(b, &x); err != nil {
+		return []byte("[]")
+	}
+	return b
 }

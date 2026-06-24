@@ -220,3 +220,139 @@ func TestBrainFeedService_List_ReturnsRowsAndTotal(t *testing.T) {
 		t.Fatalf("want 1 row, got %d", len(rows))
 	}
 }
+
+// stubDraftRepo implements service.BrainDraftStore.
+type stubDraftRepo struct {
+	mu       sync.Mutex
+	inserted []models.BrainDraftRow
+}
+
+func (s *stubDraftRepo) Insert(ctx context.Context, arg models.BrainDraftRow) (models.BrainDraftRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if arg.ID == "" {
+		arg.ID = "draft-" + arg.FeedID
+	}
+	s.inserted = append(s.inserted, arg)
+	return arg, nil
+}
+
+func (s *stubDraftRepo) MarkPushed(ctx context.Context, id string, kanbanJobID string) error {
+	return nil
+}
+
+var _ BrainDraftStore = (*stubDraftRepo)(nil)
+
+var _ = db.FacebookBrainDraft{}
+
+func TestBrainFeedService_Generate_HappyPath(t *testing.T) {
+	store := newStubRepo()
+	store.rows["u1"] = models.BrainFeedRow{ID: "feed-1", CrawledPostID: "u1", Content: "c1", PageID: "p1", PostedAt: time.Now(), Status: "ingested"}
+	drafts := &stubDraftRepo{}
+
+	bc := &fakeBrainClient{}
+	bc.prepareResults = []*mcp.PrepareResult{
+		{ProvenanceID: "prov-1", DraftVariants: []mcp.DraftVariant{{Index: 0, Content: "draft 1"}}, Validation: mcp.ValidationResult{Status: "ok"}, GenerationAvailable: true},
+	}
+
+	svc := NewBrainFeedService(store, drafts, bc, 5)
+	out, failures, err := svc.Generate(context.Background(), []string{"feed-1"}, "persona-tech")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(failures) != 0 {
+		t.Fatalf("unexpected failures: %+v", failures)
+	}
+	if len(out) != 1 {
+		t.Fatalf("want 1 draft, got %d", len(out))
+	}
+	if out[0].Content != "draft 1" {
+		t.Fatalf("unexpected content: %q", out[0].Content)
+	}
+	if out[0].ProvenanceID != "prov-1" {
+		t.Fatalf("unexpected provenance: %q", out[0].ProvenanceID)
+	}
+	if len(drafts.inserted) != 1 {
+		t.Fatalf("want 1 inserted, got %d", len(drafts.inserted))
+	}
+	// feed status should be updated to 'generated'
+	if got := store.rows["u1"].Status; got != "generated" {
+		t.Fatalf("want feed status=generated, got %q", got)
+	}
+}
+
+func TestBrainFeedService_Generate_PartialFailure(t *testing.T) {
+	store := newStubRepo()
+	store.rows["u1"] = models.BrainFeedRow{ID: "feed-1", CrawledPostID: "u1", Content: "c1", PageID: "p1", PostedAt: time.Now(), Status: "ingested"}
+	store.rows["u2"] = models.BrainFeedRow{ID: "feed-2", CrawledPostID: "u2", Content: "c2", PageID: "p1", PostedAt: time.Now(), Status: "ingested"}
+	drafts := &stubDraftRepo{}
+
+	bc := &fakeBrainClient{}
+	bc.prepareResults = []*mcp.PrepareResult{
+		{ProvenanceID: "prov-1", DraftVariants: []mcp.DraftVariant{{Index: 0, Content: "draft 1"}}, Validation: mcp.ValidationResult{Status: "ok"}, GenerationAvailable: true},
+	}
+	// No second result — feed-2 will fail
+
+	svc := NewBrainFeedService(store, drafts, bc, 5)
+	out, failures, err := svc.Generate(context.Background(), []string{"feed-1", "feed-2"}, "")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("want 1 draft, got %d", len(out))
+	}
+	if len(failures) != 1 {
+		t.Fatalf("want 1 failure, got %d", len(failures))
+	}
+	if failures[0].FeedID != "feed-2" {
+		t.Fatalf("want failure for feed-2, got %q", failures[0].FeedID)
+	}
+}
+
+func TestBrainFeedService_Generate_BlockedValidation(t *testing.T) {
+	store := newStubRepo()
+	store.rows["u1"] = models.BrainFeedRow{ID: "feed-1", CrawledPostID: "u1", Content: "c1", PageID: "p1", PostedAt: time.Now(), Status: "ingested"}
+	drafts := &stubDraftRepo{}
+
+	bc := &fakeBrainClient{}
+	bc.prepareResults = []*mcp.PrepareResult{
+		{ProvenanceID: "prov-1", DraftVariants: []mcp.DraftVariant{{Index: 0, Content: "draft 1"}}, Validation: mcp.ValidationResult{Status: "blocked"}, GenerationAvailable: false},
+	}
+
+	svc := NewBrainFeedService(store, drafts, bc, 5)
+	out, _, err := svc.Generate(context.Background(), []string{"feed-1"}, "")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("want 1 draft (even if blocked), got %d", len(out))
+	}
+	if out[0].Status != "blocked" {
+		t.Fatalf("want draft status=blocked, got %q", out[0].Status)
+	}
+	if out[0].ValidationStatus != "blocked" {
+		t.Fatalf("want validation_status=blocked, got %q", out[0].ValidationStatus)
+	}
+	// feed status should NOT be 'generated' since it's blocked
+	if got := store.rows["u1"].Status; got == "generated" {
+		t.Fatalf("feed should not be 'generated' when draft blocked, got %q", got)
+	}
+}
+
+func TestBrainFeedService_Generate_FeedNotFound(t *testing.T) {
+	store := newStubRepo()
+	drafts := &stubDraftRepo{}
+	bc := &fakeBrainClient{}
+
+	svc := NewBrainFeedService(store, drafts, bc, 5)
+	_, failures, err := svc.Generate(context.Background(), []string{"nonexistent"}, "")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(failures) != 1 {
+		t.Fatalf("want 1 failure, got %d", len(failures))
+	}
+	if failures[0].FeedID != "nonexistent" {
+		t.Fatalf("want failure for nonexistent, got %q", failures[0].FeedID)
+	}
+}
