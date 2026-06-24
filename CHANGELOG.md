@@ -4,6 +4,59 @@ All notable changes to this module are documented here.
 
 ## Unreleased
 
+### Added — Brain Feed tab
+
+The **Brain Feed tab** is a new 4th tab in the Facebook Content view
+(sits next to Composer / Kanban / Crawl) that surfaces every crawled
+post that's been pushed to `mdp-brain` for AI analysis, and lets the
+user turn those posts into drafts that land directly in Kanban.
+
+- **Brain Feed tab** (4th tab): paginated AI-curated view of crawled
+  posts ingested into `mdp-brain` (status filter + content search).
+- **Auto-ingest after crawl**: every successful crawl now pushes the
+  crawled posts through `POST /api/v1/facebook/brain/ingest` so the
+  Brain Feed is populated without an extra click.
+- **"Mở Brain Feed" chip**: appears next to the crawl status after a
+  successful crawl — clicking it switches the view to the Brain Feed
+  tab.
+- **Generate drafts from feed**: select 1+ posts and click
+  "Generate drafts" — one selected post produces one draft. Parallel
+  cap of 5 concurrent brain MCP calls (bounded goroutine pool).
+- **Bulk delete**: remove selected posts from the Brain Feed (single
+  row or batch).
+- **Pagination + filter**: server-driven paging (20/page), status
+  filter, free-text search over post content.
+- Backend endpoints:
+  - `GET  /api/v1/facebook/brain/feed?page=1&page_size=20&status=...&search=...`
+  - `DELETE /api/v1/facebook/brain/feed/:id`
+  - `POST /api/v1/facebook/brain/ingest`
+  - `POST /api/v1/facebook/brain/generate`
+- DB schema: `facebook.brain_feeds`, `facebook.brain_drafts`
+  (migration `025_brain_feed.up.sql`).
+- MCP client: stdio JSON-RPC client to `mdp-brain`
+  (`backend/internal/mcp/brain_client.go`).
+
+### Changed
+
+- Crawl tab: `handleRunCrawl` now auto-triggers `/brain/ingest` after a
+  successful crawl (fire-and-forget; ingest failures are logged but do
+  not surface to the crawl UI).
+- Kanban tab: rewired to the real `useRepostQueue` hook — the
+  `SEED_CARDS` fallback that shipped during the SCA port is gone.
+- FacebookView: now renders 4 tabs (Composer / Kanban / Crawl /
+  Brain Feed) instead of 3.
+
+### Tech notes
+
+- Bounded goroutine pool (`chan struct{}` semaphore cap 5) for both
+  ingest and generate — prevents the brain MCP stdio from being
+  overwhelmed when the user bulk-selects 50+ posts.
+- Plugin uses `AbortController` to cancel stale requests when the user
+  changes the filter faster than the network can resolve.
+- Adapter pattern: `*Row` methods on `BrainFeedRepo` / `BrainDraftRepo`
+  bridge the sqlc-generated `pgtype.*` types to the domain models so
+  the service layer never imports `pgtype` directly.
+
 ### Fixed — `mdp run module` was launching the unwired backend
 
 `mdp run module --name facebook` (and `mdp run dev`) invoked
