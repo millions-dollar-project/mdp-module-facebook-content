@@ -304,8 +304,21 @@ func TestBrainFeedService_Generate_PartialFailure(t *testing.T) {
 	if len(failures) != 1 {
 		t.Fatalf("want 1 failure, got %d", len(failures))
 	}
-	if failures[0].FeedID != "feed-2" {
-		t.Fatalf("want failure for feed-2, got %q", failures[0].FeedID)
+	// Concurrent execution drains the result slice in non-deterministic order;
+	// verify that exactly one of feed-1/feed-2 succeeded and the other failed.
+	successIDs := make(map[string]bool)
+	for _, d := range out {
+		successIDs[d.FeedID] = true
+	}
+	failedIDs := make(map[string]bool)
+	for _, f := range failures {
+		failedIDs[f.FeedID] = true
+	}
+	if len(successIDs) != 1 || len(failedIDs) != 1 {
+		t.Fatalf("want 1 success + 1 failure, got success=%v failure=%v", successIDs, failedIDs)
+	}
+	if successIDs["feed-1"] == failedIDs["feed-1"] || successIDs["feed-2"] == failedIDs["feed-2"] {
+		t.Fatalf("success/failure IDs must be distinct: success=%v failure=%v", successIDs, failedIDs)
 	}
 }
 
