@@ -22,28 +22,41 @@ export const BrainFeedPagination: React.FC<BrainFeedPaginationProps> = ({ page, 
       data-testid="brain-feed-pagination"
       style={{ display: 'flex', gap: 4, justifyContent: 'center', padding: 12, fontSize: 13 }}
     >
-      <button disabled={page <= 1} onClick={() => onPageChange(page - 1)}>‹</button>
+      <button
+        disabled={page <= 1}
+        onClick={() => onPageChange(page - 1)}
+        aria-label="Trang trước"
+      >
+        ‹
+      </button>
       {pages.map((p, i) =>
         p === '…' ? (
-          <span key={`gap-${i}`} style={{ padding: '4px 6px' }}>…</span>
+          <span key={`gap-${i}`} style={{ padding: '4px 6px', color: 'var(--ds-text-muted)' }}>…</span>
         ) : (
           <button
             key={p}
             onClick={() => onPageChange(p)}
             aria-current={p === page ? 'page' : undefined}
+            aria-label={`Trang ${p}`}
             style={{
               padding: '4px 8px',
               borderRadius: 3,
               border: '1px solid var(--ds-border)',
-              background: p === page ? '#4a90e2' : 'transparent',
-              color: p === page ? '#fff' : 'inherit',
+              background: p === page ? 'var(--platform-accent)' : 'transparent',
+              color: p === page ? 'var(--ds-text-inverse)' : 'inherit',
             }}
           >
             {p}
           </button>
         )
       )}
-      <button disabled={page >= last} onClick={() => onPageChange(page + 1)}>›</button>
+      <button
+        disabled={page >= last}
+        onClick={() => onPageChange(page + 1)}
+        aria-label="Trang sau"
+      >
+        ›
+      </button>
     </nav>
   );
 };

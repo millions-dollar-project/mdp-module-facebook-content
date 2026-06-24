@@ -12,7 +12,7 @@
  * degrades gracefully to `console.log`.
  */
 import React, { useEffect, useState } from 'react';
-import { useToast } from '../components';
+import { Card, useToast } from '../components';
 import { useBrainFeed } from '../hooks/useBrainFeed';
 import { useBrainDelete } from '../hooks/useBrainDelete';
 import { useBrainGenerate } from '../hooks/useBrainGenerate';
@@ -128,17 +128,19 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
         onGenerate={handleGenerate}
         onDeleteSelected={handleDeleteSelected}
       />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {data.items.map((post) => (
-          <BrainFeedRow
-            key={post.id}
-            post={post}
-            selected={selected.has(post.id)}
-            onToggle={handleToggle}
-            onDelete={handleDelete}
-          />
-        ))}
-      </div>
+      <Card padded={false}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8 }}>
+          {data.items.map((post) => (
+            <BrainFeedRow
+              key={post.id}
+              post={post}
+              selected={selected.has(post.id)}
+              onToggle={handleToggle}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
+      </Card>
       <BrainFeedPagination
         page={data.page}
         pageSize={data.pageSize}

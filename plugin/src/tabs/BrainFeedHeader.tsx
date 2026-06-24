@@ -5,6 +5,7 @@
  * Parent owns the filter state and the selection set.
  */
 import React from 'react';
+import { Button, Input, Select } from '../components';
 
 export interface BrainFeedFilterState {
   sourcePage: string;
@@ -39,53 +40,43 @@ export const BrainFeedHeader: React.FC<BrainFeedHeaderProps> = ({
         padding: '10px 0', borderBottom: '1px solid var(--ds-border)', marginBottom: 10,
       }}
     >
-      <select
+      <Select
+        options={STATUS_OPTIONS}
         value={filter.status}
         onChange={(e) => onFilterChange({ ...filter, status: e.target.value })}
         aria-label="Lọc theo trạng thái"
         data-testid="status-select"
-      >
-        {STATUS_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-      <input
+        style={{ minWidth: 140 }}
+      />
+      <Input
         type="search"
         placeholder="Tìm trong content…"
         value={filter.search}
         onChange={(e) => onFilterChange({ ...filter, search: e.target.value })}
         aria-label="Tìm kiếm"
         data-testid="search-input"
-        style={{
-          flex: 1, minWidth: 160, padding: '4px 8px',
-          borderRadius: 4, border: '1px solid var(--ds-border)',
-        }}
+        style={{ flex: 1, minWidth: 160 }}
       />
-      <span style={{ fontSize: 12, color: '#94a3b8' }}>Tổng: {total}</span>
-      <button
-        type="button"
+      <span style={{ fontSize: 12, color: 'var(--ds-text-muted)' }}>Tổng: {total}</span>
+      <Button
+        variant="primary"
+        size="sm"
         disabled={selectedCount === 0 || isGenerating}
+        loading={isGenerating}
         onClick={onGenerate}
         data-testid="generate-button"
-        style={{
-          padding: '6px 12px', borderRadius: 4, border: 'none',
-          background: '#4a90e2', color: '#fff', cursor: 'pointer',
-        }}
       >
         {isGenerating ? 'Đang generate…' : `+ Generate (${selectedCount})`}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="danger"
+        size="sm"
         disabled={selectedCount === 0}
         onClick={onDeleteSelected}
         data-testid="delete-selected-button"
-        style={{
-          padding: '6px 12px', borderRadius: 4,
-          border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
-        }}
       >
         Xoá ({selectedCount})
-      </button>
+      </Button>
     </div>
   );
 };

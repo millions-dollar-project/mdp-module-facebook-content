@@ -5,6 +5,7 @@
  * Used by `BrainFeedTab`. Selection state lives in the parent.
  */
 import React from 'react';
+import { Button } from '../components';
 import type { BrainFeedItem } from '../lib/types/brain';
 
 export interface BrainFeedRowProps {
@@ -28,7 +29,9 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({ post, selected, onTogg
         padding: 8,
         border: '1px solid var(--ds-border)',
         borderRadius: 6,
-        background: selected ? 'rgba(74,144,226,0.08)' : 'var(--bg-surface)',
+        background: selected
+          ? 'color-mix(in srgb, var(--platform-accent) 10%, transparent)'
+          : 'var(--bg-surface)',
         fontSize: 13,
       }}
     >
@@ -47,12 +50,12 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({ post, selected, onTogg
           borderRadius: 4,
           background: thumb
             ? `url(${thumb}) center/cover no-repeat`
-            : 'linear-gradient(135deg, #4a90e2, #a78bfa)',
+            : 'linear-gradient(135deg, var(--platform-accent), var(--platform-accent-strong))',
         }}
       />
       <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
         <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{preview}</div>
-        <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+        <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--ds-text-muted)', marginTop: 2 }}>
           <span>{post.pageName ?? post.pageId}</span>
           <span>·</span>
           <span>{ago}</span>
@@ -60,22 +63,21 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({ post, selected, onTogg
           <span>👍 {post.likes}</span>
         </div>
       </div>
-      <button
-        type="button"
+      <Button
+        size="sm"
+        variant="ghost"
         onClick={() => onDelete(post.id)}
         aria-label="Xoá"
+        data-testid={`row-delete-${post.id}`}
         style={{
-          fontSize: 11,
           padding: '2px 6px',
-          borderRadius: 3,
-          border: '1px solid #fecaca',
-          background: '#fef2f2',
-          color: '#dc2626',
-          cursor: 'pointer',
+          minWidth: 'auto',
+          color: 'var(--platform-accent)',
+          border: '1px solid var(--ds-border)',
         }}
       >
         ×
-      </button>
+      </Button>
     </div>
   );
 };

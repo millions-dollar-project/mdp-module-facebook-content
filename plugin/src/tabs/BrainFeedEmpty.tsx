@@ -6,7 +6,7 @@
  * `onGoToCrawl` callback (so the parent can manage tab switching).
  */
 import React from 'react';
-import { EmptyState } from '../components';
+import { Button, EmptyState } from '../components';
 
 export interface BrainFeedEmptyProps {
   onGoToCrawl: () => void;
@@ -18,16 +18,9 @@ export const BrainFeedEmpty: React.FC<BrainFeedEmptyProps> = ({ onGoToCrawl }) =
     title="Brain Feed trống"
     subtitle="Crawl trang Facebook trước."
     action={
-      <button
-        type="button"
-        onClick={onGoToCrawl}
-        style={{
-          padding: '8px 16px', borderRadius: 4, border: 'none',
-          background: '#4a90e2', color: '#fff', cursor: 'pointer',
-        }}
-      >
+      <Button variant="primary" onClick={onGoToCrawl}>
         Đi tới Crawl
-      </button>
+      </Button>
     }
   />
 );
