@@ -13,9 +13,16 @@ export interface BrainFeedRowProps {
   selected: boolean;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
+  onPeek?: (id: string) => void;
 }
 
-const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({ post, selected, onToggle, onDelete }) => {
+const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({
+  post,
+  selected,
+  onToggle,
+  onDelete,
+  onPeek,
+}) => {
   const thumb = post.fullPicture ?? post.thumbnailUrls?.[0] ?? post.mediaUrls[0];
   const preview = post.content.length > 120 ? post.content.slice(0, 120) + '…' : post.content;
   const ago = formatAgo(post.postedAt);
@@ -63,6 +70,23 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({ post, selected, onTogg
           <span>👍 {post.likes}</span>
         </div>
       </div>
+      {onPeek && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onPeek(post.id)}
+          aria-label="Brain peek"
+          data-testid={`row-peek-${post.id}`}
+          style={{
+            padding: '2px 8px',
+            minWidth: 'auto',
+            color: 'var(--ds-text-muted)',
+            border: '1px solid var(--ds-border)',
+          }}
+        >
+          Brain
+        </Button>
+      )}
       <Button
         size="sm"
         variant="ghost"

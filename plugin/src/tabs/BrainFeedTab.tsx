@@ -11,7 +11,7 @@
  * can call `toast.success/error/info` here. If Toast is absent the hook
  * degrades gracefully to `console.log`.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, useToast } from '../components';
 import { useBrainFeed } from '../hooks/useBrainFeed';
 import { useBrainDelete } from '../hooks/useBrainDelete';
@@ -20,6 +20,11 @@ import { BrainFeedHeader, type BrainFeedFilterState } from './BrainFeedHeader';
 import { BrainFeedRow } from './BrainFeedRow';
 import { BrainFeedPagination } from './BrainFeedPagination';
 import { BrainFeedEmpty } from './BrainFeedEmpty';
+import { BrainOverviewPanel } from './BrainOverviewPanel';
+import { BrainPersonaPanel } from './BrainPersonaPanel';
+import { BrainLearningPanel } from './BrainLearningPanel';
+import { BrainGraphStats } from './BrainGraphStats';
+import { BrainPeekDrawer } from './BrainPeekDrawer';
 
 export interface BrainFeedTabProps {
   onGoToCrawl: () => void;
@@ -31,12 +36,18 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<BrainFeedFilterState>({ sourcePage: '', status: '', search: '' });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [peekId, setPeekId] = useState<string | null>(null);
+  const [dashboardTick, setDashboardTick] = useState(0);
   const { data, loading, reload } = useBrainFeed({
     page,
     pageSize: 20,
     status: filter.status || undefined,
     search: filter.search || undefined,
   });
+  const peekedFeed = useMemo(
+    () => data.items.find((i) => i.id === peekId) ?? null,
+    [data.items, peekId],
+  );
   const { remove } = useBrainDelete();
   const { generate, loading: isGenerating } = useBrainGenerate();
 
@@ -119,6 +130,20 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
 
   return (
     <div data-testid="brain-feed-tab">
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 12,
+          marginBottom: 12,
+        }}
+        key={dashboardTick}
+      >
+        <BrainOverviewPanel />
+        <BrainPersonaPanel />
+        <BrainGraphStats />
+      </div>
+      <BrainLearningPanel onApplied={() => setDashboardTick((t) => t + 1)} />
       <BrainFeedHeader
         filter={filter}
         onFilterChange={(f) => { setFilter(f); setPage(1); }}
@@ -137,6 +162,7 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
               selected={selected.has(post.id)}
               onToggle={handleToggle}
               onDelete={handleDelete}
+              onPeek={setPeekId}
             />
           ))}
         </div>
@@ -146,6 +172,15 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
         pageSize={data.pageSize}
         total={data.total}
         onPageChange={setPage}
+      />
+      <BrainPeekDrawer
+        feed={peekedFeed}
+        open={peekId !== null}
+        onClose={() => setPeekId(null)}
+        onFeedback={() => {
+          setDashboardTick((t) => t + 1);
+          reload();
+        }}
       />
     </div>
   );
