@@ -30,20 +30,21 @@ const apiPrefix = "/api/v1/facebook"
 // RouterDeps holds the components NewRouter wires together. cmd/server
 // builds it once at startup and reuses it across the process lifetime.
 type RouterDeps struct {
-	Pool           *pgxpool.Pool
-	Pages          repo.PagesRepo
-	Queue          repo.QueueRepo
-	Sched          repo.SchedulerRepo
-	Posts          repo.PostsRepo
-	Config         repo.ConfigRepo
-	Graph          *fb.Client
-	OpenAIKey      string
-	AppSecret      string
-	VerifyToken    string
-	SidecarURL     string
-	Logger         *slog.Logger
-	CommentMonitor *service.CommentMonitor
+	Pool            *pgxpool.Pool
+	Pages           repo.PagesRepo
+	Queue           repo.QueueRepo
+	Sched           repo.SchedulerRepo
+	Posts           repo.PostsRepo
+	Config          repo.ConfigRepo
+	Graph           *fb.Client
+	OpenAIKey       string
+	AppSecret       string
+	VerifyToken     string
+	SidecarURL      string
+	Logger          *slog.Logger
+	CommentMonitor  *service.CommentMonitor
 	BrainBinaryPath string
+	BrainScope      map[string]string // default scope for brain dashboard handlers
 }
 
 // NewRouter returns a fully-wired *gin.Engine. Middleware order:
@@ -140,6 +141,22 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		brainSvc = service.NewBrainFeedService(brainFeedStore, brainDraftStore, brainClient, 5)
 	}
 	brainH := handlers.NewBrainFeedHandler(brainSvc, brainSvc, brainSvc)
+
+	// Brain dashboard (overview, peek, personas, learning, feedback, graph).
+	// Reuse the same brainClient and repos the feed handler owns. The
+	// stats service wraps the count methods the repos already expose.
+	brainScope := d.BrainScope
+	if brainScope == nil {
+		brainScope = map[string]string{"user_id": "default"}
+	}
+	brainStatsStore := brainStatsStoreAdapter{feeds: brainFeedRepo, drafts: brainDraftRepo}
+	brainStatsSvc := service.NewBrainStatsService(brainStatsStore, brainClient, brainScope)
+	overviewH := handlers.NewBrainOverviewHandler(brainStatsSvc)
+	peekH := handlers.NewBrainPeekHandler(brainFeedRepo, brainDraftRepo, brainClient)
+	brainPersonasH := handlers.NewBrainPersonasHandler(brainClient, brainScope)
+	learningH := handlers.NewBrainLearningHandler(brainClient, brainScope)
+	feedbackH := handlers.NewBrainFeedbackHandler(brainClient)
+	graphH := handlers.NewBrainGraphHandler(brainClient, brainScope)
 
 	// Prompts / Hashtags / Video config
 	promptsRepo := repo.NewPromptsRepo(queries)
@@ -279,6 +296,15 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		v1.POST("/brain/ingest", brainH.Ingest)
 		v1.POST("/brain/generate", brainH.Generate)
 
+		// Brain dashboard (overview, peek, personas, learning, feedback, graph)
+		v1.GET("/brain/overview", overviewH.Get)
+		v1.GET("/brain/provenance/:id", peekH.Get)
+		v1.GET("/brain/personas", brainPersonasH.List)
+		v1.GET("/brain/learning", learningH.List)
+		v1.POST("/brain/learning/:id/apply", learningH.Apply)
+		v1.POST("/brain/feedback", feedbackH.Create)
+		v1.GET("/brain/graph/stats", graphH.Stats)
+
 		// Back-compat with the original skeleton — keep `/posts` for the
 		// plugin's historical hooks.
 		v1.GET("/posts", func(c *gin.Context) {
@@ -351,4 +377,19 @@ func pgtypeUUIDFromString(s string) pgtype.UUID {
 	var id pgtype.UUID
 	_ = id.Scan(s)
 	return id
+}
+
+// brainStatsStoreAdapter wires the two repos that BrainStatsService
+// reads through its BrainStatsStore interface.
+type brainStatsStoreAdapter struct {
+	feeds  *repo.BrainFeedRepo
+	drafts *repo.BrainDraftRepo
+}
+
+func (a brainStatsStoreAdapter) CountByStatus(ctx context.Context) (map[string]int64, error) {
+	return a.feeds.CountByStatus(ctx)
+}
+
+func (a brainStatsStoreAdapter) CountDraftsByStatus(ctx context.Context) (map[string]int64, error) {
+	return a.drafts.CountDraftsByStatus(ctx)
 }

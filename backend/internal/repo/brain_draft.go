@@ -113,6 +113,21 @@ func (r *BrainDraftRepo) MarkPushedRow(ctx context.Context, id string, kanbanJob
 	return r.MarkPushed(ctx, uid, kanbanJobID)
 }
 
+// ListByFeedIDRow is the string-id, single-feed adapter for the brain
+// dashboard "peek" handler. It looks up drafts whose feed_id matches the
+// given string id and returns them as domain models.
+func (r *BrainDraftRepo) ListByFeedIDRow(ctx context.Context, feedID string) ([]models.BrainDraftRow, error) {
+	dbRows, err := r.ListByFeedIDs(ctx, []pgtype.UUID{stringToUUID(feedID)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.BrainDraftRow, 0, len(dbRows))
+	for _, dbRow := range dbRows {
+		out = append(out, facebookBrainDraftToModel(dbRow))
+	}
+	return out, nil
+}
+
 // -----------------------------------------------------------------------------
 // Conversion helpers
 // -----------------------------------------------------------------------------
