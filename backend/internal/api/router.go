@@ -314,6 +314,7 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		v1.GET("/crawler/launch/status", crawlerProxy.LaunchStatus)
 		v1.POST("/crawler/crawl", crawlerProxy.Crawl)
 		v1.GET("/crawler/trends", crawlerProxy.Trends)
+		v1.GET("/crawler/browsers", crawlerProxy.Browsers)
 
 		// Back-compat with the original skeleton — keep `/posts` for the
 		// plugin's historical hooks.

@@ -66,7 +66,7 @@ func (p *CrawlerProxy) LaunchStatus(c *gin.Context) {
 }
 
 // Crawl POST /crawler/crawl — body is forwarded as-is so the plugin
-// can pass {source: <id>}.
+// can pass {source: <id>, profile_dir: <path>, port: 9222}.
 func (p *CrawlerProxy) Crawl(c *gin.Context) {
 	if !p.enabled() {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "crawler proxy not configured"})
@@ -87,6 +87,18 @@ func (p *CrawlerProxy) Trends(c *gin.Context) {
 		target += "?" + raw
 	}
 	p.passthrough(c, http.MethodGet, target, nil)
+}
+
+// Browsers GET /crawler/browsers — list installed browsers and their
+// Chrome user profiles. Used by the Crawl tab's "Tài khoản đăng"
+// dropdown so the user can pick a real Chrome profile (mdp-crawler
+// reads the on-disk User Data dir) instead of a row in fb_accounts.
+func (p *CrawlerProxy) Browsers(c *gin.Context) {
+	if !p.enabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "crawler proxy not configured"})
+		return
+	}
+	p.passthrough(c, http.MethodGet, "/api/browsers", nil)
 }
 
 // passthrough performs the upstream call and copies the response back.

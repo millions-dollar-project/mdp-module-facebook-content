@@ -28,7 +28,7 @@ import { openExternal } from '../lib/external';
 import type { FBAccount } from '../lib/types';
 import { useBrainIngest } from '../hooks/useBrainIngest';
 import { useCrawlerSources } from '../hooks/useCrawlerSources';
-import { CRAWLER_PORT, type CrawlTrend } from '../lib/crawlerApi';
+import { CRAWLER_PORT, buildProfileDir, type CrawlTrend } from '../lib/crawlerApi';
 
 type CrawlMode = 'page' | 'account';
 
@@ -145,6 +145,32 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   const [crawlMode, setCrawlMode] = React.useState<CrawlMode>('page');
   const [selectedSourceId, setSelectedSourceId] = React.useState('');
   const crawler = useCrawlerSources();
+  // In 'account' mode the dropdown below the source picker shows the
+  // real Chrome user profiles installed on the user's machine (returned
+  // by mdp-crawler's /api/browsers) — NOT rows from the fb_accounts
+  // table. We store the selection as `<browserId>::<profileDir>` so
+  // mdp-crawler can resolve it back to the on-disk User Data dir.
+  const [selectedBrowserProfileKey, setSelectedBrowserProfileKey] = React.useState('');
+  const chromeProfiles = React.useMemo(() => {
+    const out: { browserId: string; dir: string; label: string }[] = [];
+    for (const br of crawler.browsers ?? []) {
+      for (const p of br.profiles ?? []) {
+        out.push({ browserId: br.id, dir: p.dir, label: p.label });
+      }
+    }
+    return out;
+  }, [crawler.browsers]);
+  const selectedBrowserProfile = React.useMemo(
+    () => chromeProfiles.find((p) => `${p.browserId}::${p.dir}` === selectedBrowserProfileKey) ?? null,
+    [chromeProfiles, selectedBrowserProfileKey],
+  );
+  // Auto-pick first profile once it loads so the user doesn't have to
+  // click before clicking "Thu thập".
+  React.useEffect(() => {
+    if (!selectedBrowserProfileKey && chromeProfiles.length > 0) {
+      setSelectedBrowserProfileKey(`${chromeProfiles[0].browserId}::${chromeProfiles[0].dir}`);
+    }
+  }, [chromeProfiles, selectedBrowserProfileKey]);
   const [posts, setPosts] = React.useState<CrawledPost[]>([]);
   const [lastCrawlLimit, setLastCrawlLimit] = React.useState<number | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -278,9 +304,20 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
         // access to the user's logged-in CDP browser, so calling it would
         // hit Facebook's login wall. mdp-crawler writes trends to its own
         // DB; we read them back to populate the list.
+        //
+        // If the user picked a Chrome profile from the dropdown below the
+        // source picker, forward its on-disk User Data dir so Playwright
+        // launches with that profile's cookies / login session.
+        const profileDir = selectedBrowserProfile
+          ? buildProfileDir(crawler.browsers, selectedBrowserProfile.browserId, selectedBrowserProfile.dir)
+          : null;
         const run = await fbFetch<{ error?: string | null }>('crawler/crawl', {
           method: 'POST',
-          body: { source: selectedSourceId },
+          body: {
+            source: selectedSourceId,
+            port: 9222,
+            ...(profileDir ? { profile_dir: profileDir } : {}),
+          },
         });
         if (run.error) {
           throw new Error(run.error);
@@ -620,9 +657,9 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
             <div style={{ width: 220, flexShrink: 0 }}>
               <FormField label="Tài khoản đăng">
                 <select
-                  value={selectedAccount?.id ?? ''}
-                  onChange={(e) => setSelectedAccountId(e.target.value)}
-                  disabled={loading || accounts.length === 0}
+                  value={selectedBrowserProfile?.dir ?? ''}
+                  onChange={(e) => setSelectedBrowserProfileKey(e.target.value)}
+                  disabled={loading || crawler.loading || chromeProfiles.length === 0}
                   style={{
                     width: '100%',
                     minHeight: 40,
@@ -633,12 +670,12 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                     padding: '0 10px',
                   }}
                 >
-                  {accounts.length === 0 ? (
-                    <option value="">Chưa có tài khoản</option>
+                  {chromeProfiles.length === 0 ? (
+                    <option value="">Chưa có Chrome profile</option>
                   ) : (
-                    accounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
+                    chromeProfiles.map((p) => (
+                      <option key={`${p.browserId}::${p.dir}`} value={`${p.browserId}::${p.dir}`}>
+                        {p.label} ({p.dir})
                       </option>
                     ))
                   )}

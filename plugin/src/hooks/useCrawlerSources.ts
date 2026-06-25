@@ -13,13 +13,14 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { fbFetch } from '../lib/api';
-import type { CrawlerSource, LaunchStatus } from '../lib/crawlerApi';
+import type { CrawlerSource, LaunchStatus, CrawlerBrowser } from '../lib/crawlerApi';
 
 const POLL_MS = 30_000;
 
 export interface UseCrawlerSourcesResult {
   sources: CrawlerSource[];
   launch: LaunchStatus | null;
+  browsers: CrawlerBrowser[];
   loading: boolean;
   error: string | null;
   reload: () => void;
@@ -28,6 +29,7 @@ export interface UseCrawlerSourcesResult {
 export function useCrawlerSources(): UseCrawlerSourcesResult {
   const [sources, setSources] = useState<CrawlerSource[]>([]);
   const [launch, setLaunch] = useState<LaunchStatus | null>(null);
+  const [browsers, setBrowsers] = useState<CrawlerBrowser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -40,11 +42,16 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
         throw new Error(`/api/sources: ${(e as Error).message}`);
       }),
       fbFetch<LaunchStatus>('crawler/launch/status').catch(() => ({} as LaunchStatus)),
+      // Browsers/profiles list is non-critical: empty array on error
+      // means the dropdown shows "Chưa có tài khoản" without breaking
+      // the rest of the panel.
+      fbFetch<CrawlerBrowser[]>('crawler/browsers').catch(() => [] as CrawlerBrowser[]),
     ])
-      .then(([src, lch]) => {
+      .then(([src, lch, brs]) => {
         if (cancelled) return;
         setSources(Array.isArray(src) ? src : []);
         setLaunch(lch ?? null);
+        setBrowsers(Array.isArray(brs) ? brs : []);
         setError(null);
       })
       .catch((e) => {
@@ -52,6 +59,7 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
         setError((e as Error).message);
         setSources([]);
         setLaunch(null);
+        setBrowsers([]);
       })
       .finally(() => {
         if (cancelled) return;
@@ -80,5 +88,5 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  return { sources, launch, loading, error, reload };
+  return { sources, launch, browsers, loading, error, reload };
 }

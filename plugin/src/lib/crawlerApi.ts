@@ -60,3 +60,31 @@ export interface CrawlTrend {
   platform?: string;
   [key: string]: unknown;
 }
+
+export interface CrawlerBrowserProfile {
+  dir: string;        // e.g. "Default", "Profile 8"
+  label: string;      // e.g. "Mike"
+}
+
+export interface CrawlerBrowser {
+  id: string;         // e.g. "chrome"
+  name: string;       // e.g. "Google Chrome"
+  exe?: string;       // full path to chrome.exe
+  user_data?: string; // path to Chrome "User Data" dir (parent of profile dirs)
+  profiles: CrawlerBrowserProfile[];
+}
+
+/** Build the on-disk User Data path + profile dir pair that mdp-crawler
+ *  wants as `profile_dir`. Crawler launches Playwright with this dir so
+ *  the cookies / login session of the chosen browser profile carry over. */
+export function buildProfileDir(
+  browsers: CrawlerBrowser[],
+  browserId: string,
+  profileDir: string
+): string | null {
+  const br = browsers.find((b) => b.id === browserId);
+  if (!br?.user_data) return null;
+  // Normalise: Windows backslashes → forward slashes, drop trailing slash.
+  const base = br.user_data.replace(/\\/g, '/').replace(/\/$/, '');
+  return `${base}/${profileDir}`;
+}
