@@ -35,7 +35,7 @@ export const BrainGraphStats: React.FC = () => {
     return (
       <EmptyState
         title="Graph rỗng"
-        subtitle="Chưa có entity nào được track."
+        subtitle="Graph sẽ tự populate khi Brain ingest content từ các bài crawl."
       />
     );
   }

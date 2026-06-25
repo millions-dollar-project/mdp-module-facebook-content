@@ -36,7 +36,7 @@ export const BrainPersonaPanel: React.FC = () => {
     return (
       <EmptyState
         title="Chưa có persona nào"
-        subtitle="Brain chưa expose list_profiles; graph trả về rỗng."
+        subtitle="Tạo persona qua menu Brain để bắt đầu cá nhân hoá nội dung theo từng kênh."
       />
     );
   }

@@ -58,7 +58,7 @@ export const BrainOverviewPanel: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
           gap: 12,
           marginTop: 12,
         }}
@@ -121,7 +121,7 @@ const Distribution: React.FC<{
   return (
     <div
       style={{
-        padding: 12,
+        padding: 10,
         borderRadius: 6,
         background: 'var(--bg-elevated)',
       }}
@@ -130,31 +130,43 @@ const Distribution: React.FC<{
         style={{
           fontSize: 11,
           color: 'var(--ds-text-muted)',
-          marginBottom: 4,
+          marginBottom: 6,
+          display: 'flex',
+          justifyContent: 'space-between',
         }}
       >
-        {label} (tổng: {total})
+        <span>{label}</span>
+        <span>tổng: {total}</span>
       </div>
       {entries.length === 0 ? (
-        <div style={{ fontSize: 12, color: 'var(--ds-text-muted)' }}>
+        <div style={{ fontSize: 11, color: 'var(--ds-text-muted)' }}>
           Chưa có dữ liệu
         </div>
       ) : (
-        entries.map(([status, count]) => (
-          <div
-            key={status}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontSize: 12,
-            }}
-          >
-            <span>{status}</span>
-            <span style={{ color: 'var(--ds-text-primary)', fontWeight: 500 }}>
-              {count}
-            </span>
-          </div>
-        ))
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '2px 8px',
+          }}
+        >
+          {entries.map(([status, count]) => (
+            <div
+              key={status}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 11,
+                lineHeight: 1.4,
+              }}
+            >
+              <span style={{ color: 'var(--ds-text-muted)' }}>{status}</span>
+              <span style={{ color: 'var(--ds-text-primary)', fontWeight: 500 }}>
+                {count}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
