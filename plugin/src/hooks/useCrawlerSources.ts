@@ -12,7 +12,8 @@
  * can show "mdp-crawler chưa chạy" instead of crashing.
  */
 import { useEffect, useState, useCallback } from 'react';
-import { crawlerFetch, type CrawlerSource, type LaunchStatus } from '../lib/crawlerApi';
+import { fbFetch } from '../lib/api';
+import type { CrawlerSource, LaunchStatus } from '../lib/crawlerApi';
 
 const POLL_MS = 30_000;
 
@@ -35,10 +36,10 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
     let cancelled = false;
     setLoading(true);
     Promise.all([
-      crawlerFetch<CrawlerSource[]>('/api/sources').catch((e) => {
+      fbFetch<CrawlerSource[]>('crawler/sources').catch((e) => {
         throw new Error(`/api/sources: ${(e as Error).message}`);
       }),
-      crawlerFetch<LaunchStatus>('/api/launch/status').catch(() => ({} as LaunchStatus)),
+      fbFetch<LaunchStatus>('crawler/launch/status').catch(() => ({} as LaunchStatus)),
     ])
       .then(([src, lch]) => {
         if (cancelled) return;

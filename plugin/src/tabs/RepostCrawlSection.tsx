@@ -28,7 +28,7 @@ import { openExternal } from '../lib/external';
 import type { FBAccount } from '../lib/types';
 import { useBrainIngest } from '../hooks/useBrainIngest';
 import { useCrawlerSources } from '../hooks/useCrawlerSources';
-import { crawlerRun, getCrawlerTrends, CRAWLER_PORT, type CrawlTrend } from '../lib/crawlerApi';
+import { CRAWLER_PORT, type CrawlTrend } from '../lib/crawlerApi';
 
 type CrawlMode = 'page' | 'account';
 
@@ -278,12 +278,15 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
         // access to the user's logged-in CDP browser, so calling it would
         // hit Facebook's login wall. mdp-crawler writes trends to its own
         // DB; we read them back to populate the list.
-        const run = await crawlerRun(selectedSourceId);
+        const run = await fbFetch<{ error?: string | null }>('crawler/crawl', {
+          method: 'POST',
+          body: { source: selectedSourceId },
+        });
         if (run.error) {
           throw new Error(run.error);
         }
-        const trends = await getCrawlerTrends(maxPosts);
-        data = trends.map((t) => crawlerTrendToPost(t, selectedSourceId));
+        const trends = await fbFetch<CrawlTrend[]>(`crawler/trends?limit=${maxPosts}`);
+        data = (Array.isArray(trends) ? trends : []).map((t) => crawlerTrendToPost(t, selectedSourceId));
       } else {
         // Lần 1: dùng untilDate (nếu user đã điền / mặc định hôm nay).
         // Gửi accountId của account active đầu tiên (nếu có) để sidecar
@@ -362,12 +365,15 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
     try {
       let data: CrawledPost[];
       if (crawlMode === 'account') {
-        const run = await crawlerRun(selectedSourceId);
+        const run = await fbFetch<{ error?: string | null }>('crawler/crawl', {
+          method: 'POST',
+          body: { source: selectedSourceId },
+        });
         if (run.error) {
           throw new Error(run.error);
         }
-        const trends = await getCrawlerTrends(maxPosts);
-        data = trends.map((t) => crawlerTrendToPost(t, selectedSourceId));
+        const trends = await fbFetch<CrawlTrend[]>(`crawler/trends?limit=${maxPosts}`);
+        data = (Array.isArray(trends) ? trends : []).map((t) => crawlerTrendToPost(t, selectedSourceId));
       } else {
         data = await fbFetch<CrawledPost[]>('crawl-page-v2', {
           method: 'POST',

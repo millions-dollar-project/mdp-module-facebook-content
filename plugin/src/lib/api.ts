@@ -92,9 +92,37 @@ export async function fbFetch<T = unknown>(
         msg.includes('Command') ||
         msg.includes('not found')
       ) {
-        // fallthrough to HTTP below
+        // fallthrough to proxy below
       } else {
         throw new Error(msg);
+      }
+    }
+
+    // Second-chance: forward through the Tauri main process via
+    // `proxy_to_backend` so we can reach the Go backend without WebView2
+    // blocking a cross-origin fetch to its own loopback port.
+    if (shell?.ipc?.invoke && BACKEND_PORT) {
+      try {
+        const port = Number(BACKEND_PORT);
+        const fullPath = `${API_BASE.replace(/^https?:\/\/[^/]+/, '')}${path.startsWith('/') ? path : `/${path}`}`;
+        const bodyBytes = body ? new TextEncoder().encode(JSON.stringify(body)) : null;
+        const raw = (await shell.ipc.invoke('proxy_to_backend', {
+          port,
+          path: fullPath,
+          method,
+          body: bodyBytes,
+          contentType: body ? 'application/json' : null,
+        })) as number[] | null;
+        const bytes = raw ? new Uint8Array(raw) : null;
+        const text = bytes ? new TextDecoder().decode(bytes) : '';
+        if (!text) return undefined as T;
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === 'object' && 'data' in parsed) {
+          return (parsed as { data: T }).data;
+        }
+        return parsed as T;
+      } catch (err) {
+        // fallthrough to direct HTTP (dev shell with vite proxy etc.)
       }
     }
   }

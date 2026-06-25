@@ -40,6 +40,12 @@ type Config struct {
 	SidecarNodeBin     string // path to node binary
 	SidecarStartTimeout time.Duration // how long to wait for /health after spawn
 
+	// --- mdp-crawler (separate Python process for "Tài khoản của tôi" crawl) ---
+	// Proxied via the backend because Tauri 2's WebView2 blocks the
+	// plugin's direct fetch() to a sibling loopback process. Empty
+	// string = crawler proxy disabled.
+	CrawlerURL string // e.g. "http://localhost:9123"
+
 	// --- AI providers (Phase 3+; Phase 2 uses echo stub regardless) ---
 	OpenAIAPIKey     string
 	OpenAIModel      string
@@ -82,6 +88,9 @@ func Load() (*Config, error) {
 		SidecarAutostart:  getenv("SIDECAR_AUTOSTART", "true") == "true",
 		SidecarScriptPath: getenv("SIDECAR_SCRIPT_PATH", defaultSidecarScriptPath()),
 		SidecarNodeBin:    getenv("SIDECAR_NODE_BIN", "node"),
+
+		// mdp-crawler proxy
+		CrawlerURL: getenv("MDP_CRAWLER_URL", "http://localhost:9123"),
 
 		// AI
 		OpenAIAPIKey:     os.Getenv("OPENAI_API_KEY"),

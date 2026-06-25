@@ -143,6 +143,7 @@ func main() {
 		AppSecret:       cfg.FacebookAppSecret,
 		VerifyToken:     cfg.FacebookVerifyToken,
 		SidecarURL:      cfg.SidecarURL,
+		CrawlerURL:      cfg.CrawlerURL,
 		Logger:          log,
 		CommentMonitor:  commentMonitor,
 		BrainBinaryPath: os.Getenv("MDP_BRAIN_BIN"),

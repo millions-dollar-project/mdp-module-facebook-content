@@ -41,6 +41,7 @@ type RouterDeps struct {
 	AppSecret       string
 	VerifyToken     string
 	SidecarURL      string
+	CrawlerURL      string // mdp-crawler base URL for proxy (empty = disabled)
 	Logger          *slog.Logger
 	CommentMonitor  *service.CommentMonitor
 	BrainBinaryPath string
@@ -304,6 +305,15 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		v1.POST("/brain/learning/:id/apply", learningH.Apply)
 		v1.POST("/brain/feedback", feedbackH.Create)
 		v1.GET("/brain/graph/stats", graphH.Stats)
+
+		// mdp-crawler proxy (Tài khoản của tôi mode). The plugin talks
+		// to the backend (trusted by WebView2); the backend forwards to
+		// the Python crawler process.
+		crawlerProxy := handlers.NewCrawlerProxy(d.CrawlerURL)
+		v1.GET("/crawler/sources", crawlerProxy.Sources)
+		v1.GET("/crawler/launch/status", crawlerProxy.LaunchStatus)
+		v1.POST("/crawler/crawl", crawlerProxy.Crawl)
+		v1.GET("/crawler/trends", crawlerProxy.Trends)
 
 		// Back-compat with the original skeleton — keep `/posts` for the
 		// plugin's historical hooks.
