@@ -74,6 +74,9 @@ func NewBrainClient(binaryPath string, timeout time.Duration) *BrainClient {
 // call sends one JSON-RPC request and waits for the matching response (by id).
 // Locks the client for the duration of the call to serialize concurrent calls.
 func (c *BrainClient) call(ctx context.Context, method string, params map[string]any) (map[string]any, error) {
+	if c == nil {
+		return nil, fmt.Errorf("%w: client not initialized", ErrBrainClient)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.ensure(ctx); err != nil {

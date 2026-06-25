@@ -36,7 +36,8 @@ type BrainStatsService struct {
 }
 
 // NewBrainStatsService wires a BrainStatsService. brainTimeout defaults
-// to 5s when zero.
+// to 5s when zero. A nil brain is allowed (dev mode without mdp-brain
+// installed); brain-side calls become no-ops that record a warning.
 func NewBrainStatsService(store BrainStatsStore, brain BrainStatsClient, scope map[string]string) *BrainStatsService {
 	return &BrainStatsService{
 		store:        store,

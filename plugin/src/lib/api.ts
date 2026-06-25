@@ -10,8 +10,14 @@
 export const PLATFORM = 'facebook';
 export const DISPLAY = 'Facebook';
 
-// Convention from workspace root CLAUDE.md: facebook = 8081
-export const BACKEND_PORT = '8081';
+// Convention from workspace root CLAUDE.md: facebook = 8081, but the
+// facebook-content module shares the prefix with the older facebook
+// module and dev runner splits them onto 8081 / 8086 respectively.
+// We default to 8086 (the content module) and let VITE_FB_PORT override.
+const envPort =
+  typeof import.meta !== 'undefined' &&
+  (import.meta as { env?: Record<string, string> }).env?.VITE_FB_PORT;
+export const BACKEND_PORT = envPort ?? '8086';
 export const API_BASE = `http://localhost:${BACKEND_PORT}/api/v1/${PLATFORM}`;
 
 type ShellWindow = Window & {
