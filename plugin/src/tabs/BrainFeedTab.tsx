@@ -19,7 +19,6 @@ import { useBrainGenerate } from '../hooks/useBrainGenerate';
 import { BrainFeedHeader, type BrainFeedFilterState } from './BrainFeedHeader';
 import { BrainFeedRow } from './BrainFeedRow';
 import { BrainFeedPagination } from './BrainFeedPagination';
-import { BrainFeedEmpty } from './BrainFeedEmpty';
 import { BrainOverviewPanel } from './BrainOverviewPanel';
 import { BrainPersonaPanel } from './BrainPersonaPanel';
 import { BrainLearningPanel } from './BrainLearningPanel';
@@ -27,11 +26,11 @@ import { BrainGraphStats } from './BrainGraphStats';
 import { BrainPeekDrawer } from './BrainPeekDrawer';
 
 export interface BrainFeedTabProps {
-  onGoToCrawl: () => void;
+  onGoToCrawl?: () => void;
   onDraftsReady: (feedIds: string[]) => void;
 }
 
-export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraftsReady }) => {
+export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => {
   const toast = useToast();
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<BrainFeedFilterState>({ sourcePage: '', status: '', search: '' });
@@ -142,9 +141,7 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
         <BrainGraphStats />
       </div>
       <BrainLearningPanel onApplied={() => setDashboardTick((t) => t + 1)} />
-      {isEmpty ? (
-        <BrainFeedEmpty onGoToCrawl={onGoToCrawl} />
-      ) : (
+      {!isEmpty && (
         <>
           <BrainFeedHeader
             filter={filter}
