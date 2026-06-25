@@ -88,3 +88,81 @@ export interface GenerateResponse {
   drafts: BrainDraft[];
   failures: Array<{ feedId: string; err: string }>;
 }
+
+// ── Dashboard types (T6) ─────────────────────────────────────────────
+
+/** Aggregated dashboard view assembled by BrainStatsService. */
+export interface BrainOverview {
+  feeds: Record<string, number>;
+  drafts: Record<string, number>;
+  brain: {
+    total_memories: number;
+    total_rules: number;
+    total_profiles: number;
+    total_learning_signals: number;
+  };
+  graph: {
+    total_entities: number;
+    by_type: Record<string, number>;
+  };
+  recent_7d: {
+    ingests: number;
+    generates: number;
+    publishes: number;
+    feedback_count: number;
+  };
+  warnings?: string[];
+}
+
+/** Single provenance record returned by brain_get_provenance. */
+export interface BrainProvenance {
+  id: string;
+  context_package_id?: string;
+  profile_id?: string;
+  profile_version?: number;
+  account_id?: string;
+  prompt_skill_refs: unknown[];
+  rule_refs: unknown[];
+  provider: Record<string, unknown>;
+  validation: { status: 'ok' | 'warning' | 'blocked'; details?: string[] };
+  source_input_ids: string[];
+  schema_version: string;
+  created_at: string;
+}
+
+/** Response from /brain/provenance/:id — feed + drafts + provenance. */
+export interface BrainProvenanceDetail {
+  feed_id: string;
+  feed?: BrainFeedItem;
+  drafts: BrainDraft[];
+  provenance?: BrainProvenance;
+  warnings?: string[];
+}
+
+/** Persona entity known to the Brain MCP (graph type=profile). */
+export interface BrainPersona {
+  id: string;
+  type: string;
+  external_ref?: string;
+}
+
+/** Proposed learning signal returned by brain_get_learning_state. */
+export interface BrainLearningSignal {
+  id: string;
+  target_type: string;
+  target_id?: string;
+  scope: unknown;
+  proposal: Record<string, unknown>;
+  evidence: Record<string, unknown>;
+  confidence: number;
+  impact_level: 'low' | 'medium' | 'high';
+  status: 'proposed' | 'active' | 'rejected' | 'deprecated';
+  created_at: string;
+}
+
+/** Aggregate counts over the Brain entity graph. */
+export interface BrainGraphStats {
+  total_entities: number;
+  by_type: Record<string, number>;
+  top_entities: Array<{ id: string; type: string; external_ref: string }>;
+}

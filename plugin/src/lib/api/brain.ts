@@ -9,6 +9,11 @@
 import { fbFetch } from '../api';
 import type {
   BrainFeedListResponse,
+  BrainGraphStats,
+  BrainLearningSignal,
+  BrainOverview,
+  BrainPersona,
+  BrainProvenanceDetail,
   GenerateRequest,
   GenerateResponse,
   IngestPostsRequest,
@@ -59,4 +64,58 @@ export function generateDrafts(req: GenerateRequest): Promise<GenerateResponse> 
     method: 'POST',
     body: req,
   });
+}
+
+// ── Dashboard (T6) ──────────────────────────────────────────────────
+
+export function fetchBrainOverview(signal?: AbortSignal): Promise<BrainOverview> {
+  return fbFetch<BrainOverview>('brain/overview', { signal });
+}
+
+export function fetchBrainProvenance(
+  feedId: string,
+  signal?: AbortSignal,
+): Promise<BrainProvenanceDetail> {
+  return fbFetch<BrainProvenanceDetail>(
+    `brain/provenance/${encodeURIComponent(feedId)}`,
+    { signal },
+  );
+}
+
+export function fetchBrainPersonas(signal?: AbortSignal): Promise<{ personas: BrainPersona[] }> {
+  return fbFetch<{ personas: BrainPersona[] }>('brain/personas', { signal });
+}
+
+export function fetchBrainLearning(signal?: AbortSignal): Promise<{ signals: BrainLearningSignal[] }> {
+  return fbFetch<{ signals: BrainLearningSignal[] }>('brain/learning', { signal });
+}
+
+export function applyBrainLearning(
+  signalId: string,
+): Promise<{ applied: boolean; signal_id: string; note?: string }> {
+  return fbFetch<{ applied: boolean; signal_id: string; note?: string }>(
+    `brain/learning/${encodeURIComponent(signalId)}/apply`,
+    { method: 'POST' },
+  );
+}
+
+export function recordBrainFeedback(
+  provenanceId: string,
+  action: 'approved' | 'rejected' | 'edited',
+  opts: { editedText?: string; notes?: string; reasonTags?: string[] } = {},
+): Promise<{ feedback_id: string; signal_created: boolean }> {
+  return fbFetch<{ feedback_id: string; signal_created: boolean }>('brain/feedback', {
+    method: 'POST',
+    body: {
+      provenance_id: provenanceId,
+      action,
+      edited_text: opts.editedText,
+      notes: opts.notes,
+      reason_tags: opts.reasonTags,
+    },
+  });
+}
+
+export function fetchBrainGraphStats(signal?: AbortSignal): Promise<BrainGraphStats> {
+  return fbFetch<BrainGraphStats>('brain/graph/stats', { signal });
 }
