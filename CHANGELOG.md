@@ -57,6 +57,70 @@ user turn those posts into drafts that land directly in Kanban.
   bridge the sqlc-generated `pgtype.*` types to the domain models so
   the service layer never imports `pgtype` directly.
 
+### Added — Brain Dashboard
+
+The Brain Feed tab now exposes a **dashboard** at the top so the user
+can see what `mdp-brain` actually knows, drill into a feed row, and
+record review decisions without leaving the tab.
+
+- **Overview panel** (`BrainOverviewPanel`): four stat cards
+  (memories / rules / profiles / graph entities), two distribution
+  cards (feeds-by-status, drafts-by-status), 7-day activity line
+  (ingests / generates / publishes / feedback), and any warnings
+  the brain surfaces.
+- **Persona panel** (`BrainPersonaPanel`): list of AI profiles known
+  to the brain. Falls back to the entity graph when `list_profiles`
+  isn't yet exposed.
+- **Learning panel** (`BrainLearningPanel`): proposed learning
+  signals with an Áp dụng button that calls
+  `applyBrainLearning`. Today the brain's `apply` is a stub — the
+  panel surfaces the server's note when that happens.
+- **Graph stats** (`BrainGraphStats`): entity count by type plus
+  top-5 entities (external_ref + type).
+- **Brain Peek drawer** (`BrainPeekDrawer`): click the "Brain"
+  button on any row to slide out a Modal that shows provenance
+  (profile + rule refs + validation), drafts, and a feedback
+  recorder (Duyệt / Từ chối / Sửa & duyệt).
+
+**Backend (Go)**
+
+- `BrainStatsService` aggregates feed counts, draft counts, brain
+  totals, graph stats, and 7-day activity in one call. Falls back
+  to zero-filled responses when the MCP stdio errors so the UI
+  always has a shape to render.
+- Five new HTTP handlers, each taking a small interface so the
+  handlers are unit-testable without a live `mdp-brain`:
+  - `GET  /api/v1/facebook/brain/overview`
+  - `GET  /api/v1/facebook/brain/provenance/:id`
+  - `GET  /api/v1/facebook/brain/personas`
+  - `GET  /api/v1/facebook/brain/learning`
+  - `POST /api/v1/facebook/brain/learning/:id/apply` (stub)
+  - `POST /api/v1/facebook/brain/feedback`
+  - `GET  /api/v1/facebook/brain/graph/stats`
+- Handler error envelope: 502 on MCP error, 503 when the brain is
+  nil, 400 on missing required fields.
+- Four new methods on the brain MCP client
+  (`backend/internal/mcp/brain_client.go`):
+  `GetProvenance`, `GetLearningState`, `QueryGraph`, `RecordFeedback`.
+
+**Plugin (React + TypeScript)**
+
+- Six new hooks in `plugin/src/hooks/` with polling + abort:
+  `useBrainOverview`, `useBrainProvenance`, `useBrainPersonas`,
+  `useBrainLearning`, `useBrainGraph`, `useBrainFeedback` (mutation).
+- `lib/api/brain.ts` extended with seven dashboard methods + six
+  new types in `lib/types/brain.ts`.
+- Dashboard panels live at the top of `BrainFeedTab` and refresh
+  whenever the user applies a learning signal or records feedback.
+
+**Tests**
+
+- 13 Go tests in `backend/internal/api/handlers/brain_dashboard_test.go`
+  covering each handler's happy path + error envelope.
+- 17 vitest tests in `plugin/src/lib/api/brain.test.ts`
+  (10 prior + 7 dashboard).
+- 3 vitest tests in `plugin/src/hooks/__tests__/useBrainOverview.test.ts`.
+
 ### Fixed — `mdp run module` was launching the unwired backend
 
 `mdp run module --name facebook` (and `mdp run dev`) invoked

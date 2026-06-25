@@ -69,3 +69,31 @@ select posts → Generate drafts → Kanban.
 **Schema:** see
 `backend/internal/db/migrations/025_brain_feed.up.sql`
 (`facebook.brain_feeds`, `facebook.brain_drafts`).
+
+### Brain Dashboard
+
+Inside the Brain Feed tab, the top of the page is a **dashboard**
+that surfaces what `mdp-brain` actually knows about the workspace:
+
+- **Overview** — memories / rules / profiles / graph entities, feed
+  + draft status distributions, 7-day activity line.
+- **Personas** — AI profiles the brain has learned, sourced from
+  the entity graph when `list_profiles` isn't exposed.
+- **Learning** — proposed learning signals with an Áp dụng button.
+- **Graph stats** — entity count by type plus the top-5 entities.
+- **Brain peek** — click the "Brain" button on any row to open a
+  drawer with provenance (profile + rule refs + validation),
+  drafts, and a feedback recorder (Duyệt / Từ chối / Sửa & duyệt).
+
+Backend endpoints that back the dashboard:
+
+- `GET  /api/v1/facebook/brain/overview`
+- `GET  /api/v1/facebook/brain/provenance/:id`
+- `GET  /api/v1/facebook/brain/personas`
+- `GET  /api/v1/facebook/brain/learning`
+- `POST /api/v1/facebook/brain/learning/:id/apply`
+- `POST /api/v1/facebook/brain/feedback`
+- `GET  /api/v1/facebook/brain/graph/stats`
+
+All dashboard handlers fall back to a zero-filled response when the
+brain MCP errors so the UI always has a shape to render.
