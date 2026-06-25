@@ -28,7 +28,7 @@ import { openExternal } from '../lib/external';
 import type { FBAccount } from '../lib/types';
 import { useBrainIngest } from '../hooks/useBrainIngest';
 import { useCrawlerSources } from '../hooks/useCrawlerSources';
-import { crawlerRun, getCrawlerTrends, type CrawlTrend } from '../lib/crawlerApi';
+import { crawlerRun, getCrawlerTrends, CRAWLER_PORT, type CrawlTrend } from '../lib/crawlerApi';
 
 type CrawlMode = 'page' | 'account';
 
@@ -567,7 +567,7 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                 >
                   <strong>⚠ Tính năng yêu cầu:</strong>
                   <ol style={{ margin: '6px 0 0 16px', padding: 0 }}>
-                    <li>mdp-crawler đang chạy (port {(typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string> }).env?.VITE_CRAWLER_PORT) ?? '9123'})</li>
+                    <li>mdp-crawler đang chạy (port {CRAWLER_PORT})</li>
                     <li>Chrome/Cốc Cốc với <code>--remote-debugging-port</code> đang mở và đã login Facebook</li>
                     <li>Source chọn có <code>profile_dir</code> trỏ vào profile đã login (burner, không phải acc chính)</li>
                   </ol>

@@ -18,7 +18,11 @@ const envPort =
   (import.meta as { env?: Record<string, string> }).env?.VITE_CRAWLER_PORT;
 
 export const CRAWLER_PORT = envPort ?? '9123';
-export const CRAWLER_BASE = `http://127.0.0.1:${CRAWLER_PORT}`;
+// Use 'localhost' instead of '127.0.0.1' — Tauri 2's WebView2 treats
+// 'localhost' as the canonical loopback (matches the webview's own
+// origin) and lets fetch through, whereas '127.0.0.1' can be rejected
+// as a cross-origin request even though both resolve to the same IP.
+export const CRAWLER_BASE = `http://localhost:${CRAWLER_PORT}`;
 
 export interface CrawlerSource {
   id: string;
