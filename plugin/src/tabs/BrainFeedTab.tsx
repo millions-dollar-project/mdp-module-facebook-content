@@ -124,9 +124,7 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
     }
   };
 
-  if (!loading && data.items.length === 0 && data.total === 0) {
-    return <BrainFeedEmpty onGoToCrawl={onGoToCrawl} />;
-  }
+  const isEmpty = !loading && data.items.length === 0 && data.total === 0;
 
   return (
     <div data-testid="brain-feed-tab">
@@ -144,35 +142,41 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onGoToCrawl, onDraft
         <BrainGraphStats />
       </div>
       <BrainLearningPanel onApplied={() => setDashboardTick((t) => t + 1)} />
-      <BrainFeedHeader
-        filter={filter}
-        onFilterChange={(f) => { setFilter(f); setPage(1); }}
-        selectedCount={selected.size}
-        total={data.total}
-        isGenerating={isGenerating}
-        onGenerate={handleGenerate}
-        onDeleteSelected={handleDeleteSelected}
-      />
-      <Card padded={false}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8 }}>
-          {data.items.map((post) => (
-            <BrainFeedRow
-              key={post.id}
-              post={post}
-              selected={selected.has(post.id)}
-              onToggle={handleToggle}
-              onDelete={handleDelete}
-              onPeek={setPeekId}
-            />
-          ))}
-        </div>
-      </Card>
-      <BrainFeedPagination
-        page={data.page}
-        pageSize={data.pageSize}
-        total={data.total}
-        onPageChange={setPage}
-      />
+      {isEmpty ? (
+        <BrainFeedEmpty onGoToCrawl={onGoToCrawl} />
+      ) : (
+        <>
+          <BrainFeedHeader
+            filter={filter}
+            onFilterChange={(f) => { setFilter(f); setPage(1); }}
+            selectedCount={selected.size}
+            total={data.total}
+            isGenerating={isGenerating}
+            onGenerate={handleGenerate}
+            onDeleteSelected={handleDeleteSelected}
+          />
+          <Card padded={false}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8 }}>
+              {data.items.map((post) => (
+                <BrainFeedRow
+                  key={post.id}
+                  post={post}
+                  selected={selected.has(post.id)}
+                  onToggle={handleToggle}
+                  onDelete={handleDelete}
+                  onPeek={setPeekId}
+                />
+              ))}
+            </div>
+          </Card>
+          <BrainFeedPagination
+            page={data.page}
+            pageSize={data.pageSize}
+            total={data.total}
+            onPageChange={setPage}
+          />
+        </>
+      )}
       <BrainPeekDrawer
         feed={peekedFeed}
         open={peekId !== null}
