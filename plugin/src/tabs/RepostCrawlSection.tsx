@@ -27,6 +27,10 @@ import { fbFetch } from '../lib/api';
 import { openExternal } from '../lib/external';
 import type { FBAccount } from '../lib/types';
 import { useBrainIngest } from '../hooks/useBrainIngest';
+import { useCrawlerSources } from '../hooks/useCrawlerSources';
+import { crawlerRun, getCrawlerTrends, type CrawlTrend } from '../lib/crawlerApi';
+
+type CrawlMode = 'page' | 'account';
 
 export interface CrawledPost {
   id: string;
@@ -101,6 +105,32 @@ const parseDate = (s: string | number | null | undefined): Date | null => {
   return isNaN(d.getTime()) || d.getTime() <= 0 ? null : d;
 };
 
+/**
+ * Convert an mdp-crawler trend row into the CrawledPost shape the UI
+ * already knows how to render. The trend table is intentionally thin
+ * (id, author, text, posted_at, stats, url) — fields like mediaUrls,
+ * reactions and a stable pageId are filled with safe defaults so the
+ * card grid doesn't crash.
+ */
+const crawlerTrendToPost = (t: CrawlTrend, pageId: string): CrawledPost => {
+  const postedAtRaw = (t.posted_at as string | number | undefined) ?? '';
+  const date = parseDate(postedAtRaw);
+  return {
+    id: String(t.id ?? t.post_id ?? crypto.randomUUID()),
+    pageId,
+    content: String(t.text ?? ''),
+    fullContent: String(t.text ?? ''),
+    mediaUrls: [],
+    videoUrls: [],
+    mediaType: 'text',
+    likes: Number(t.likes ?? 0),
+    comments: Number(t.comments ?? 0),
+    shares: Number(t.shares ?? 0),
+    postedAt: date ? date.toISOString() : String(postedAtRaw),
+    permalink: String(t.url ?? ''),
+  };
+};
+
 export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedule, onOpenBrainFeed }) => {
   const [pageUrl, setPageUrl] = React.useState('');
   const [maxPosts, setMaxPosts] = React.useState(10);
@@ -110,6 +140,11 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   const [untilDate, setUntilDate] = React.useState('');
   const [selectedAccountId, setSelectedAccountId] = React.useState('');
   const [loading, setLoading] = React.useState(false);
+  // Mode selector: 'page' (URL tự do) vs 'account' (mdp-crawler source
+  // đã login). Khi 'account' user chọn 1 source từ /api/sources.
+  const [crawlMode, setCrawlMode] = React.useState<CrawlMode>('page');
+  const [selectedSourceId, setSelectedSourceId] = React.useState('');
+  const crawler = useCrawlerSources();
   const [posts, setPosts] = React.useState<CrawledPost[]>([]);
   const [lastCrawlLimit, setLastCrawlLimit] = React.useState<number | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -209,9 +244,25 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   // Sort newest → oldest. Defensive: backend có thể trả theo thứ tự khác.
   const sortedPosts = posts;
 
+  // Compute the effective target the user wants to crawl. In 'page'
+  // mode it's a free URL. In 'account' mode it's the source's first
+  // entry_url (mdp-crawler sources are pre-configured to the right
+  // start URL — feed, newsfeed, etc.).
+  const effectiveTarget = React.useMemo(() => {
+    if (crawlMode === 'account') {
+      const src = crawler.sources.find((s) => s.id === selectedSourceId);
+      return src?.entry_urls?.[0] ?? '';
+    }
+    return pageUrl.trim();
+  }, [crawlMode, pageUrl, crawler.sources, selectedSourceId]);
+
   const handleCrawl = async () => {
-    if (!pageUrl.trim()) {
-      toast.warning('Nhập URL trang Facebook trước');
+    if (!effectiveTarget) {
+      toast.warning(
+        crawlMode === 'page'
+          ? 'Nhập URL trang Facebook trước'
+          : 'Chọn 1 tài khoản (mdp-crawler source) trước'
+      );
       return;
     }
     if (!isValidViDateInput(untilDate)) {
@@ -220,36 +271,50 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
     }
     setLoading(true);
     try {
-      // Lần 1: dùng untilDate (nếu user đã điền / mặc định hôm nay).
-      // Gửi accountId của account active đầu tiên (nếu có) để sidecar
-      // mở Chrome với profile đã login — tránh bị Facebook throttle.
-      const first = await fbFetch<CrawledPost[]>('crawl-page-v2', {
-        method: 'POST',
-        body: {
-          pageUrl: pageUrl.trim(),
-          limit: maxPosts,
-          untilDate: untilDate || undefined,
-          accountId: selectedAccount?.id,
-        },
-      });
-      let data = first;
+      let data: CrawledPost[];
       let fellBack = false;
-      // Smart fallback: nếu user filter theo "Từ ngày" mà page không có
-      // bài nào trong khoảng đó (ví dụ page chưa đăng hôm nay), tự gọi
-      // lại KHÔNG filter để user vẫn thấy được bài mới nhất. Tránh UX
-      // "bấm thu thập → trắng trơn" dù sidecar có scrape được.
-      if (data.length === 0 && untilDate) {
-        const second = await fbFetch<CrawledPost[]>('crawl-page-v2', {
+      if (crawlMode === 'account') {
+        // Account mode: route through mdp-crawler. The Go sidecar has no
+        // access to the user's logged-in CDP browser, so calling it would
+        // hit Facebook's login wall. mdp-crawler writes trends to its own
+        // DB; we read them back to populate the list.
+        const run = await crawlerRun(selectedSourceId);
+        if (run.error) {
+          throw new Error(run.error);
+        }
+        const trends = await getCrawlerTrends(maxPosts);
+        data = trends.map((t) => crawlerTrendToPost(t, selectedSourceId));
+      } else {
+        // Lần 1: dùng untilDate (nếu user đã điền / mặc định hôm nay).
+        // Gửi accountId của account active đầu tiên (nếu có) để sidecar
+        // mở Chrome với profile đã login — tránh bị Facebook throttle.
+        const first = await fbFetch<CrawledPost[]>('crawl-page-v2', {
           method: 'POST',
           body: {
-            pageUrl: pageUrl.trim(),
+            pageUrl: effectiveTarget,
             limit: maxPosts,
+            untilDate: untilDate || undefined,
             accountId: selectedAccount?.id,
           },
         });
-        if (second.length > 0) {
-          data = second;
-          fellBack = true;
+        data = first;
+        // Smart fallback: nếu user filter theo "Từ ngày" mà page không có
+        // bài nào trong khoảng đó (ví dụ page chưa đăng hôm nay), tự gọi
+        // lại KHÔNG filter để user vẫn thấy được bài mới nhất. Tránh UX
+        // "bấm thu thập → trắng trơn" dù sidecar có scrape được.
+        if (data.length === 0 && untilDate) {
+          const second = await fbFetch<CrawledPost[]>('crawl-page-v2', {
+            method: 'POST',
+            body: {
+              pageUrl: effectiveTarget,
+              limit: maxPosts,
+              accountId: selectedAccount?.id,
+            },
+          });
+          if (second.length > 0) {
+            data = second;
+            fellBack = true;
+          }
         }
       }
       setPosts(data);
@@ -285,20 +350,34 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
    * sort lệch) hoặc muốn ép kiểu "lấy mới nhất, kệ ngày".
    */
   const handleCrawlAll = async () => {
-    if (!pageUrl.trim()) {
-      toast.warning('Nhập URL trang Facebook trước');
+    if (!effectiveTarget) {
+      toast.warning(
+        crawlMode === 'page'
+          ? 'Nhập URL trang Facebook trước'
+          : 'Chọn 1 tài khoản (mdp-crawler source) trước'
+      );
       return;
     }
     setLoading(true);
     try {
-      const data = await fbFetch<CrawledPost[]>('crawl-page-v2', {
-        method: 'POST',
-        body: {
-          pageUrl: pageUrl.trim(),
-          limit: maxPosts,
-          accountId: selectedAccount?.id,
-        },
-      });
+      let data: CrawledPost[];
+      if (crawlMode === 'account') {
+        const run = await crawlerRun(selectedSourceId);
+        if (run.error) {
+          throw new Error(run.error);
+        }
+        const trends = await getCrawlerTrends(maxPosts);
+        data = trends.map((t) => crawlerTrendToPost(t, selectedSourceId));
+      } else {
+        data = await fbFetch<CrawledPost[]>('crawl-page-v2', {
+          method: 'POST',
+          body: {
+            pageUrl: effectiveTarget,
+            limit: maxPosts,
+            accountId: selectedAccount?.id,
+          },
+        });
+      }
       setPosts(data);
       setLastCrawlLimit(maxPosts);
       setSelected(new Set());
@@ -308,7 +387,11 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
         toast.warning('Không tìm thấy bài nào — thử URL khác hoặc tăng "Số bài tối đa".');
         setLastIngestedCount(0);
       } else {
-        toast.success(`Đã thu thập ${data.length} bài mới nhất (bỏ lọc ngày)`);
+        toast.success(
+          crawlMode === 'account'
+            ? `Đã thu thập ${data.length} bài từ tài khoản (mdp-crawler)`
+            : `Đã thu thập ${data.length} bài mới nhất (bỏ lọc ngày)`
+        );
         void autoIngestPosts(data);
       }
     } catch (e) {
@@ -352,19 +435,151 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
     if (first) handleSchedule(first);
   };
 
+  // Compute prerequisite status for 'account' mode so the warning
+  // panel and button-disable can reflect it without re-fetching.
+  const accountModeReady = React.useMemo(() => {
+    if (crawlMode !== 'account') return true;
+    if (crawler.loading) return false;
+    if (crawler.error) return false; // mdp-crawler not running
+    if (crawler.sources.length === 0) return false;
+    const src = crawler.sources.find((s) => s.id === selectedSourceId);
+    if (!src) return false;
+    // risk_ack=false means the user has not acknowledged ToS risk yet
+    if (src.risk_ack === false) return false;
+    // network/scrape sources need a logged-in browser attached
+    if (src.render === 'network' || src.render === 'scrape') {
+      const ready = crawler.launch?.ready === true;
+      if (!ready) return false;
+    }
+    return true;
+  }, [crawlMode, crawler, selectedSourceId]);
+
   return (
     <div className="fb-crawl-section">
       {/* Form: layout 2 hàng gọn — hàng 1 URL, hàng 2 (số bài | từ ngày | nút) */}
       <Card>
         <h3>Thu thập bài viết</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <FormField label="URL trang Facebook">
-            <Input
-              placeholder="https://www.facebook.com/somepage"
-              value={pageUrl}
-              onChange={(e) => setPageUrl(e.target.value)}
-            />
-          </FormField>
+          {/* Mode selector: compact segmented control, inline above URL/source */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--ds-text-muted)' }}>Nguồn:</span>
+            <div
+              role="tablist"
+              style={{
+                display: 'inline-flex',
+                borderRadius: 6,
+                border: '1px solid var(--ds-border)',
+                overflow: 'hidden',
+              }}
+            >
+              {(['page', 'account'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={crawlMode === m}
+                  onClick={() => setCrawlMode(m)}
+                  style={{
+                    padding: '4px 12px',
+                    fontSize: 12,
+                    border: 'none',
+                    background: crawlMode === m ? 'var(--platform-accent)' : 'transparent',
+                    color: crawlMode === m ? '#fff' : 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontWeight: crawlMode === m ? 600 : 400,
+                  }}
+                >
+                  {m === 'page' ? 'Trang cụ thể' : 'Tài khoản của tôi'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {crawlMode === 'page' ? (
+            <FormField label="URL trang Facebook">
+              <Input
+                placeholder="https://www.facebook.com/somepage"
+                value={pageUrl}
+                onChange={(e) => setPageUrl(e.target.value)}
+              />
+            </FormField>
+          ) : (
+            <>
+              <FormField label="Tài khoản (mdp-crawler source)">
+                <select
+                  value={selectedSourceId}
+                  onChange={(e) => setSelectedSourceId(e.target.value)}
+                  disabled={crawler.loading}
+                  style={{
+                    width: '100%',
+                    minHeight: 40,
+                    borderRadius: 8,
+                    border: '1px solid var(--ds-border)',
+                    background: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    padding: '0 10px',
+                  }}
+                >
+                  {crawler.loading && <option value="">Đang tải…</option>}
+                  {!crawler.loading && crawler.error && (
+                    <option value="">mdp-crawler chưa chạy</option>
+                  )}
+                  {!crawler.loading && !crawler.error && crawler.sources.length === 0 && (
+                    <option value="">Chưa có source nào</option>
+                  )}
+                  {!crawler.loading && !crawler.error && crawler.sources.length > 0 && (
+                    <>
+                      <option value="">— chọn tài khoản —</option>
+                      {crawler.sources.map((src) => {
+                        const tags: string[] = [];
+                        if (src.render) tags.push(src.render);
+                        if (src.has_profile_dir) tags.push('profile');
+                        if (src.has_cdp_url) tags.push('cdp');
+                        if (src.enabled) tags.push('enabled');
+                        return (
+                          <option key={src.id} value={src.id}>
+                            {src.id} {tags.length > 0 ? `(${tags.join(', ')})` : ''}
+                          </option>
+                        );
+                      })}
+                    </>
+                  )}
+                </select>
+              </FormField>
+              {/* Preview entry URL of selected source so the user can
+                  confirm which page they're about to crawl. */}
+              {selectedSourceId && (
+                <div className="fb-muted" style={{ fontSize: 12, marginTop: -6 }}>
+                  entry: <code style={{ fontSize: 12 }}>{crawler.sources.find((s) => s.id === selectedSourceId)?.entry_urls?.[0] ?? '—'}</code>
+                </div>
+              )}
+              {!accountModeReady && (
+                <div
+                  data-testid="crawl-account-warning"
+                  style={{
+                    padding: 10,
+                    borderRadius: 6,
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--ds-warning-border, #d4a017)',
+                    fontSize: 12,
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <strong>⚠ Tính năng yêu cầu:</strong>
+                  <ol style={{ margin: '6px 0 0 16px', padding: 0 }}>
+                    <li>mdp-crawler đang chạy (port {(typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string> }).env?.VITE_CRAWLER_PORT) ?? '9123'})</li>
+                    <li>Chrome/Cốc Cốc với <code>--remote-debugging-port</code> đang mở và đã login Facebook</li>
+                    <li>Source chọn có <code>profile_dir</code> trỏ vào profile đã login (burner, không phải acc chính)</li>
+                  </ol>
+                  {crawler.error && (
+                    <div style={{ marginTop: 6, opacity: 0.8 }}>
+                      {crawler.error}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
           <div
             style={{
               display: 'flex',
@@ -397,7 +612,7 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
               </FormField>
             </div>
             <div style={{ width: 220, flexShrink: 0 }}>
-              <FormField label="Tài khoản crawl">
+              <FormField label="Tài khoản đăng">
                 <select
                   value={selectedAccount?.id ?? ''}
                   onChange={(e) => setSelectedAccountId(e.target.value)}
@@ -425,12 +640,16 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
               </FormField>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-              <Button onClick={handleCrawl} disabled={loading}>
+              <Button
+                onClick={handleCrawl}
+                disabled={loading || !accountModeReady}
+                title={!accountModeReady && crawlMode === 'account' ? 'Thiếu điều kiện tiên quyết — xem cảnh báo phía trên' : undefined}
+              >
                 {loading ? 'Đang thu thập…' : 'Thu thập'}
               </Button>
               <Button
                 onClick={handleCrawlAll}
-                disabled={loading}
+                disabled={loading || !accountModeReady}
                 variant="ghost"
                 title="Bỏ lọc ngày — lấy N bài mới nhất không giới hạn"
               >
@@ -440,7 +659,7 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
           </div>
           <p className="fb-muted" style={{ fontSize: 12, margin: 0 }}>
             Để trống "Từ ngày" để lấy đúng N bài đầu feed từ trên xuống. Nếu kết quả lệch,
-            thử đổi <strong>Tài khoản crawl</strong> sang profile đã login đúng Facebook.
+            thử đổi <strong>Tài khoản đăng</strong> sang profile đã login đúng Facebook.
             Bấm <strong>"Tải lại tất cả"</strong> để chủ động bỏ qua bộ lọc ngày.
           </p>
         </div>
