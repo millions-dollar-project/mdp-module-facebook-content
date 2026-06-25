@@ -43,3 +43,14 @@ export type { UseBrainFeedParams } from './useBrainFeed';
 export { useBrainIngest } from './useBrainIngest';
 export { useBrainGenerate } from './useBrainGenerate';
 export { useBrainDelete } from './useBrainDelete';
+
+// Brain dashboard (T7)
+export { useBrainOverview } from './useBrainOverview';
+export type { UseBrainOverviewOptions } from './useBrainOverview';
+export { useBrainProvenance } from './useBrainProvenance';
+export { useBrainPersonas } from './useBrainPersonas';
+export { useBrainLearning } from './useBrainLearning';
+export { useBrainGraph } from './useBrainGraph';
+export type { UseBrainGraphOptions } from './useBrainGraph';
+export { useBrainFeedback } from './useBrainFeedback';
+export type { FeedbackAction, UseBrainFeedbackOptions } from './useBrainFeedback';
