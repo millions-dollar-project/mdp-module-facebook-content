@@ -81,6 +81,10 @@ func (h *BrainFeedHandler) List(c *gin.Context) {
 			f.To = &t
 		}
 	}
+	if h.svc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "brain_not_configured", "message": "brain service not configured"})
+		return
+	}
 	items, total, err := h.svc.List(c.Request.Context(), f, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "list_failed", "message": err.Error()})
@@ -104,6 +108,10 @@ func (h *BrainFeedHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "id_required", "message": "id is required"})
+		return
+	}
+	if h.svc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "brain_not_configured", "message": "brain service not configured"})
 		return
 	}
 	if err := h.svc.Delete(c.Request.Context(), id); err != nil {

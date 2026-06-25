@@ -144,6 +144,10 @@ func (s *BrainStatsService) GetOverview(ctx context.Context) (*BrainOverview, er
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
+		if s.brain == nil {
+			recordWarning("learning_state: brain client not configured")
+			return
+		}
 		ls, err := s.brain.GetLearningState(brainCtx, s.scope, "", "")
 		if err != nil {
 			recordWarning("learning_state: " + err.Error())
@@ -155,6 +159,10 @@ func (s *BrainStatsService) GetOverview(ctx context.Context) (*BrainOverview, er
 	}()
 	go func() {
 		defer wg.Done()
+		if s.brain == nil {
+			recordWarning("graph_query: brain client not configured")
+			return
+		}
 		g, err := s.brain.QueryGraph(brainCtx, s.scope, nil, 0)
 		if err != nil {
 			recordWarning("graph_query: " + err.Error())
