@@ -66,6 +66,17 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
     return () => window.clearInterval(id);
   }, []);
 
+  // Fast retry right after a failure: the 30s poll is too slow if the
+  // user starts mdp-crawler after opening the tab. Re-poll on a short
+  // ladder while there's an error, then fall back to the long interval
+  // once we successfully read sources at least once.
+  useEffect(() => {
+    if (!error) return;
+    const delays = [2_000, 5_000, 10_000];
+    const timers = delays.map((d) => window.setTimeout(() => setTick((t) => t + 1), d));
+    return () => timers.forEach((id) => window.clearTimeout(id));
+  }, [error]);
+
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   return { sources, launch, loading, error, reload };
