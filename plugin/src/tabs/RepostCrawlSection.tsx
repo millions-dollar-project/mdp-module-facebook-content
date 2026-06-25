@@ -546,8 +546,16 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
               />
             </FormField>
           ) : (
-            <>
-              <FormField label="Tài khoản (mdp-crawler source)">
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 12,
+              }}
+            >
+              {/* Source picker (mdp-crawler YAML). Render-mode badges go
+                  inside each <option> so the dropdown stays self-explanatory. */}
+              <FormField label="Tài khoản crawler">
                 <select
                   value={selectedSourceId}
                   onChange={(e) => setSelectedSourceId(e.target.value)}
@@ -567,99 +575,42 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                     <option value="">mdp-crawler chưa chạy</option>
                   )}
                   {!crawler.loading && !crawler.error && crawler.sources.length === 0 && (
-                    <option value="">Chưa có source nào</option>
+                    <option value="">Chưa có source</option>
                   )}
                   {!crawler.loading && !crawler.error && crawler.sources.length > 0 && (
                     <>
-                      <option value="">— chọn tài khoản —</option>
+                      <option value="">— chọn —</option>
                       {crawler.sources.map((src) => {
                         const tags: string[] = [];
                         if (src.render) tags.push(src.render);
                         if (src.has_profile_dir) tags.push('profile');
                         if (src.has_cdp_url) tags.push('cdp');
-                        if (src.enabled) tags.push('enabled');
+                        if (src.enabled) tags.push('on');
                         return (
                           <option key={src.id} value={src.id}>
-                            {src.id} {tags.length > 0 ? `(${tags.join(', ')})` : ''}
+                            {src.id}
+                            {tags.length > 0 ? ` · ${tags.join(' · ')}` : ''}
                           </option>
                         );
                       })}
                     </>
                   )}
                 </select>
+                {selectedSourceId && (
+                  <div className="fb-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                    {crawler.sources.find((s) => s.id === selectedSourceId)?.entry_urls?.[0] ?? ''}
+                  </div>
+                )}
               </FormField>
-              {/* Preview entry URL of selected source so the user can
-                  confirm which page they're about to crawl. */}
-              {selectedSourceId && (
-                <div className="fb-muted" style={{ fontSize: 12, marginTop: -6 }}>
-                  entry: <code style={{ fontSize: 12 }}>{crawler.sources.find((s) => s.id === selectedSourceId)?.entry_urls?.[0] ?? '—'}</code>
-                </div>
-              )}
-              {!accountModeReady && (
-                <div
-                  data-testid="crawl-account-warning"
-                  style={{
-                    padding: 10,
-                    borderRadius: 6,
-                    background: 'var(--bg-elevated)',
-                    border: '1px solid var(--ds-warning-border, #d4a017)',
-                    fontSize: 12,
-                    color: 'var(--text-primary)',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <strong>⚠ Tính năng yêu cầu:</strong>
-                  <ol style={{ margin: '6px 0 0 16px', padding: 0 }}>
-                    <li>mdp-crawler đang chạy (port {CRAWLER_PORT})</li>
-                    <li>Chrome/Cốc Cốc với <code>--remote-debugging-port</code> đang mở và đã login Facebook</li>
-                    <li>Source chọn có <code>profile_dir</code> trỏ vào profile đã login (burner, không phải acc chính)</li>
-                  </ol>
-                  {crawler.error && (
-                    <div style={{ marginTop: 6, opacity: 0.8 }}>
-                      {crawler.error}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 12,
-              alignItems: 'flex-end',
-            }}
-          >
-            <div style={{ width: 130, flexShrink: 0 }}>
-              <FormField label="Số bài tối đa">
-                <Input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={String(maxPosts)}
-                  onChange={(e) => setMaxPosts(Math.max(1, Number(e.target.value) || 10))}
-                />
-              </FormField>
-            </div>
-            <div style={{ width: 200, flexShrink: 0 }}>
-              <FormField label="Từ ngày">
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="dd/mm/yyyy"
-                  pattern="\d{2}/\d{2}/\d{4}"
-                  value={untilDate}
-                  onChange={(e) => setUntilDate(e.target.value)}
-                />
-              </FormField>
-            </div>
-            <div style={{ width: 220, flexShrink: 0 }}>
-              <FormField label="Tài khoản đăng">
+
+              {/* Chrome user-profile picker. Only meaningful in 'account'
+                  mode — it's the on-disk profile whose cookies / login
+                  session the crawler should reuse. */}
+              <FormField label="Profile đang đăng nhập">
                 <select
                   value={selectedBrowserProfile?.dir ?? ''}
                   onChange={(e) => setSelectedBrowserProfileKey(e.target.value)}
-                  disabled={loading || crawler.loading || chromeProfiles.length === 0}
+                  disabled={crawler.loading || chromeProfiles.length === 0}
                   style={{
                     width: '100%',
                     minHeight: 40,
@@ -671,25 +622,56 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                   }}
                 >
                   {chromeProfiles.length === 0 ? (
-                    <option value="">Chưa có Chrome profile</option>
+                    <option value="">Chưa phát hiện profile</option>
                   ) : (
                     chromeProfiles.map((p) => (
-                      <option key={`${p.browserId}::${p.dir}`} value={`${p.browserId}::${p.dir}`}>
-                        {p.label} ({p.dir})
+                      <option
+                        key={`${p.browserId}::${p.dir}`}
+                        value={`${p.browserId}::${p.dir}`}
+                        title={p.label}
+                      >
+                        {p.label}
                       </option>
                     ))
                   )}
                 </select>
               </FormField>
             </div>
+          )}
+          {/* Filter row + action buttons in a single line on wide screens. */}
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 12,
+              alignItems: 'flex-end',
+            }}
+          >
+            <div style={{ width: 110, flexShrink: 0 }}>
+              <FormField label="Số bài">
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={String(maxPosts)}
+                  onChange={(e) => setMaxPosts(Math.max(1, Number(e.target.value) || 10))}
+                />
+              </FormField>
+            </div>
+            <div style={{ width: 150, flexShrink: 0 }}>
+              <FormField label="Từ ngày">
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="dd/mm/yyyy"
+                  pattern="\d{2}/\d{2}/\d{4}"
+                  value={untilDate}
+                  onChange={(e) => setUntilDate(e.target.value)}
+                />
+              </FormField>
+            </div>
+            <div style={{ flex: 1 }} />
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-              <Button
-                onClick={handleCrawl}
-                disabled={loading || !accountModeReady}
-                title={!accountModeReady && crawlMode === 'account' ? 'Thiếu điều kiện tiên quyết — xem cảnh báo phía trên' : undefined}
-              >
-                {loading ? 'Đang thu thập…' : 'Thu thập'}
-              </Button>
               <Button
                 onClick={handleCrawlAll}
                 disabled={loading || !accountModeReady}
@@ -698,8 +680,47 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
               >
                 Tải lại tất cả
               </Button>
+              <Button
+                onClick={handleCrawl}
+                disabled={loading || !accountModeReady}
+                title={!accountModeReady && crawlMode === 'account' ? 'Thiếu điều kiện tiên quyết — xem cảnh báo bên dưới' : undefined}
+              >
+                {loading ? 'Đang thu thập…' : 'Thu thập'}
+              </Button>
             </div>
           </div>
+          {/* Compact warning row — only when account mode is missing a
+              prerequisite. Single line per condition so it doesn't drown
+              the rest of the form. */}
+          {crawlMode === 'account' && !accountModeReady && (
+            <div
+              data-testid="crawl-account-warning"
+              style={{
+                padding: '8px 10px',
+                borderRadius: 6,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--ds-warning-border, #d4a017)',
+                fontSize: 12,
+                color: 'var(--text-primary)',
+                lineHeight: 1.6,
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '4px 14px',
+              }}
+            >
+              <span><strong>⚠ Cần:</strong></span>
+              <span>mdp-crawler đang chạy (port {CRAWLER_PORT})</span>
+              <span>·</span>
+              <span>Chrome với <code>--remote-debugging-port</code> + đã login FB</span>
+              <span>·</span>
+              <span>Profile burner (không dùng acc chính)</span>
+              {crawler.error && (
+                <span style={{ width: '100%', opacity: 0.8, marginTop: 2 }}>
+                  ↳ {crawler.error}
+                </span>
+              )}
+            </div>
+          )}
           <p className="fb-muted" style={{ fontSize: 12, margin: 0 }}>
             Để trống "Từ ngày" để lấy đúng N bài đầu feed từ trên xuống. Nếu kết quả lệch,
             thử đổi <strong>Tài khoản đăng</strong> sang profile đã login đúng Facebook.
