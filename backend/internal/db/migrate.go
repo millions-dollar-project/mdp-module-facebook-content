@@ -238,6 +238,14 @@ func pgIndexExists(databaseURL, indexName string) bool {
 // already at the latest version, ErrNoChange is returned and treated as
 // success. A previously-crashed migration (dirty flag) is auto-recovered
 // before running so a single bad boot doesn't brick the backend.
+//
+// Cross-module note: this backend shares a Postgres database with
+// mdp-module-facebook (legacy). Both write to the `schema_migrations`
+// table; the legacy module owns the higher-numbered migrations. When
+// the DB has already been advanced past our local set (e.g. legacy
+// ran first and left version=30 while we only ship 25 files),
+// golang-migrate's `Up()` aborts with "no migration found for version
+// N" — a false negative. We detect that case and short-circuit.
 func RunMigrationsUp(databaseURL string, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
@@ -255,6 +263,16 @@ func RunMigrationsUp(databaseURL string, logger *slog.Logger) error {
 		return err
 	}
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		// Cross-DB overshoot: another module already advanced
+		// schema_migrations past our highest version. Nothing for us to
+		// do — log and succeed so the backend still boots.
+		if strings.Contains(err.Error(), "no migration found for version") {
+			if logger != nil {
+				logger.Warn("schema_migrations beyond local migration set; skipping",
+					"err", err.Error())
+			}
+			return nil
+		}
 		return fmt.Errorf("migrate up: %w", err)
 	}
 	return nil
