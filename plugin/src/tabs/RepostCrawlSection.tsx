@@ -608,7 +608,7 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                   session the crawler should reuse. */}
               <FormField label="Profile đang đăng nhập">
                 <select
-                  value={selectedBrowserProfile?.dir ?? ''}
+                  value={selectedBrowserProfileKey}
                   onChange={(e) => setSelectedBrowserProfileKey(e.target.value)}
                   disabled={crawler.loading || chromeProfiles.length === 0}
                   style={{

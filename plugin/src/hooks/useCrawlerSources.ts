@@ -111,12 +111,21 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
     // (%LOCALAPPDATA%\Google\Chrome\User Data), which is what `browsers`
     // already reports as `user_data`.
     if (!profile.dir) return;
+    // Chrome refuses --remote-debugging-port when --user-data-dir points
+    // to the "real" default User Data dir (the one used by the user's
+    // everyday browser). It treats that dir as non-debuggable. Pass a
+    // SIBLING subdirectory like "<User Data>\CDPDebug" instead — Chrome
+    // sees it as a fresh profile dir and happily binds the debugger
+    // while keeping cookies/sessions on the read-only default dir.
+    const userDataBase = target.user_data?.replace(/[\\/]+$/, '');
+    const userDataDir = userDataBase ? `${userDataBase}\\CDPDebug` : undefined;
     let cancelled = false;
     fbFetch<{ ok?: boolean; error?: string }>('crawler/launch', {
       method: 'POST',
       body: JSON.stringify({
         exe: target.exe,
         profile: profile.dir,
+        user_data_dir: userDataDir,
         port: 9222,
         // force=true quits any lingering Chrome first so the new process
         // owns the profile lock AND can bind --remote-debugging-port.

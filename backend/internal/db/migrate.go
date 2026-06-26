@@ -46,13 +46,19 @@ func recoverDirty(m *migrate.Migrate, logger *slog.Logger, databaseURL string) e
 	}
 	logger.Warn("migration dirty — attempting auto-recovery", "dirty_version", curVer)
 
-	maxApplied := highestAppliedVersion(int(curVer), databaseURL, logger)
+	// Scan the FULL migration set, not just up to the dirty version —
+	// the schema in the DB may have outrun the dirty marker (e.g. all
+	// 30 tables exist but schema_migrations is stuck at v4 dirty=true
+	// because an earlier crash happened during Up()). Limiting the
+	// scan to curVer would under-recover and re-run migrations whose
+	// objects are already present.
+	maxApplied := highestAppliedVersion(totalMigrationCount(), databaseURL, logger)
 	target := maxApplied
 	logger.Warn("dirty probe summary",
 		"dirty_version", curVer, "highest_applied", maxApplied)
 	if target > int(curVer) {
-		// impossible, but guard anyway
-		target = int(curVer)
+		// The schema outran the dirty marker — accept the higher value.
+		// This is the exact case the expanded scan is meant to fix.
 	}
 	if err := m.Force(target); err != nil {
 		return fmt.Errorf("force version %d (clear dirty): %w", target, err)
@@ -125,6 +131,23 @@ func schemaAlreadyApplied(version uint, databaseURL string, logger *slog.Logger)
 	}
 	logger.Warn("dirty probe: no CREATE TABLE/SCHEMA — assuming applied", "version", version)
 	return true
+}
+
+// totalMigrationCount returns the number of *.up.sql files embedded in
+// the binary. Used by recoverDirty to scan the FULL migration set when
+// the DB schema has outrun the schema_migrations version row.
+func totalMigrationCount() int {
+	entries, err := migrationsFS.ReadDir("migrations")
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".up.sql") {
+			count++
+		}
+	}
+	return count
 }
 
 // highestAppliedVersion scans migrations 1..maxDirty and returns the

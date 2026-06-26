@@ -88,3 +88,17 @@ export function buildProfileDir(
   const base = br.user_data.replace(/\\/g, '/').replace(/\/$/, '');
   return `${base}/${profileDir}`;
 }
+
+export interface LaunchRequest {
+  exe: string;
+  profile: string;
+  port?: number;
+  force?: boolean;
+}
+
+export interface LaunchResponse {
+  ok?: boolean;
+  port?: number;
+  reused?: boolean;
+  error?: string;
+}

@@ -65,6 +65,19 @@ func (p *CrawlerProxy) LaunchStatus(c *gin.Context) {
 	p.passthrough(c, http.MethodGet, "/api/launch/status", nil)
 }
 
+// Launch POST /crawler/launch — body forwarded as-is so the plugin can
+// pass {exe, profile, port, force} from the user-selected Chrome profile.
+// Upstream returns {ok, port, reused}. Plugin uses this to bring Chrome
+// up with --remote-debugging-port before the user clicks Thu thập.
+func (p *CrawlerProxy) Launch(c *gin.Context) {
+	if !p.enabled() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "crawler proxy not configured"})
+		return
+	}
+	body, _ := io.ReadAll(c.Request.Body)
+	p.passthrough(c, http.MethodPost, "/api/launch", body)
+}
+
 // Crawl POST /crawler/crawl — body is forwarded as-is so the plugin
 // can pass {source: <id>, profile_dir: <path>, port: 9222}.
 func (p *CrawlerProxy) Crawl(c *gin.Context) {

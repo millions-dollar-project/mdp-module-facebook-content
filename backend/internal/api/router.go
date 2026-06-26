@@ -312,6 +312,7 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		crawlerProxy := handlers.NewCrawlerProxy(d.CrawlerURL)
 		v1.GET("/crawler/sources", crawlerProxy.Sources)
 		v1.GET("/crawler/launch/status", crawlerProxy.LaunchStatus)
+		v1.POST("/crawler/launch", crawlerProxy.Launch)
 		v1.POST("/crawler/crawl", crawlerProxy.Crawl)
 		v1.GET("/crawler/trends", crawlerProxy.Trends)
 		v1.GET("/crawler/browsers", crawlerProxy.Browsers)
