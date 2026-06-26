@@ -480,22 +480,66 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
 
   // Compute prerequisite status for 'account' mode so the warning
   // panel and button-disable can reflect it without re-fetching.
-  const accountModeReady = React.useMemo(() => {
-    if (crawlMode !== 'account') return true;
-    if (crawler.loading) return false;
-    if (crawler.error) return false; // mdp-crawler not running
-    if (crawler.sources.length === 0) return false;
-    const src = crawler.sources.find((s) => s.id === selectedSourceId);
-    if (!src) return false;
-    // risk_ack=false means the user has not acknowledged ToS risk yet
-    if (src.risk_ack === false) return false;
-    // network/scrape sources need a logged-in browser attached
-    if (src.render === 'network' || src.render === 'scrape') {
-      const ready = crawler.launch?.ready === true;
-      if (!ready) return false;
+  // Each failing condition is enumerated so the warning panel can
+  // point at a specific fix instead of dumping the whole list.
+  const accountModeChecks = React.useMemo(() => {
+    const checks: { ok: boolean; msg: string }[] = [];
+    if (crawlMode !== 'account') return checks;
+    if (crawler.loading) {
+      checks.push({ ok: false, msg: 'Đang tải danh sách tài khoản…' });
+      return checks;
     }
-    return true;
+    if (crawler.error) {
+      checks.push({
+        ok: false,
+        msg: 'mdp-crawler không phản hồi — chạy `npm run dev:win`',
+      });
+      return checks;
+    }
+    checks.push({
+      ok: true,
+      msg: `mdp-crawler đang chạy (port ${CRAWLER_PORT})`,
+    });
+    if (crawler.sources.length === 0) {
+      checks.push({ ok: false, msg: 'Chưa có tài khoản nào trong sources/' });
+    } else {
+      checks.push({
+        ok: true,
+        msg: `${crawler.sources.length} tài khoản crawler khả dụng`,
+      });
+    }
+    const src = crawler.sources.find((s) => s.id === selectedSourceId);
+    if (!src) {
+      checks.push({ ok: false, msg: 'Chưa chọn tài khoản crawler' });
+    } else if (src.risk_ack === false) {
+      checks.push({ ok: false, msg: 'Cần xác nhận rủi ro ToS cho tài khoản này' });
+    }
+    // network/scrape sources need a logged-in browser attached.
+    // CDP readiness is the LAST check — it's the only one we can fix
+    // with a single click from this UI.
+    if (
+      src &&
+      src.risk_ack !== false &&
+      (src.render === 'network' || src.render === 'scrape')
+    ) {
+      const ready = crawler.launch?.ready === true;
+      checks.push({
+        ok: ready,
+        msg: ready
+          ? 'Chrome CDP sẵn sàng (port 9222)'
+          : 'Chrome chưa khởi động — bấm "Khởi động Chrome"',
+      });
+    }
+    return checks;
   }, [crawlMode, crawler, selectedSourceId]);
+
+  const accountModeReady = accountModeChecks.every((c) => c.ok);
+
+  // The CDP check is the only one we can remediate from here; expose it
+  // so the warning panel can attach a manual launch button.
+  const cdpMissing = accountModeChecks.some(
+    (c) => !c.ok && c.msg.startsWith('Chrome chưa khởi động')
+  );
 
   return (
     <div className="fb-crawl-section">
@@ -690,8 +734,11 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
             </div>
           </div>
           {/* Compact warning row — only when account mode is missing a
-              prerequisite. Single line per condition so it doesn't drown
-              the rest of the form. */}
+              prerequisite. One row per failing condition so the user
+              can see exactly which check is blocking the button. The
+              CDP row also gets a manual "Khởi động Chrome" button so
+              the user doesn't have to wait for the 30s auto-launch
+              poll to clear it. */}
           {crawlMode === 'account' && !accountModeReady && (
             <div
               data-testid="crawl-account-warning"
@@ -704,21 +751,40 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                 color: 'var(--text-primary)',
                 lineHeight: 1.6,
                 display: 'flex',
-                flexWrap: 'wrap',
-                gap: '4px 14px',
+                flexDirection: 'column',
+                gap: 4,
               }}
             >
               <span><strong>⚠ Cần:</strong></span>
-              <span>mdp-crawler đang chạy (port {CRAWLER_PORT})</span>
-              <span>·</span>
-              <span>Chrome với <code>--remote-debugging-port</code> + đã login FB</span>
-              <span>·</span>
-              <span>Profile burner (không dùng acc chính)</span>
-              {crawler.error && (
-                <span style={{ width: '100%', opacity: 0.8, marginTop: 2 }}>
-                  ↳ {crawler.error}
+              {accountModeChecks.map((c, i) => (
+                <span
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    opacity: c.ok ? 0.55 : 1,
+                  }}
+                >
+                  <span style={{ width: 14 }}>{c.ok ? '✓' : '✗'}</span>
+                  <span style={{ flex: 1 }}>{c.msg}</span>
+                  {!c.ok && cdpMissing && c.msg.startsWith('Chrome chưa khởi động') && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={crawler.launching}
+                      onClick={() => {
+                        const fired = crawler.launchBrowser();
+                        if (!fired) {
+                          toast.warning('Chưa tìm thấy profile Chrome — mở Chrome ít nhất 1 lần rồi tải lại');
+                        }
+                      }}
+                    >
+                      {crawler.launching ? 'Đang mở…' : 'Khởi động Chrome'}
+                    </Button>
+                  )}
                 </span>
-              )}
+              ))}
             </div>
           )}
           <p className="fb-muted" style={{ fontSize: 12, margin: 0 }}>

@@ -24,6 +24,12 @@ export interface UseCrawlerSourcesResult {
   loading: boolean;
   error: string | null;
   reload: () => void;
+  // launchBrowser kicks off CDP Chrome on demand (same payload the
+  // auto-launch useEffect uses). Returns true if the request fired —
+  // false when no Chrome profile is available yet. Errors are swallowed;
+  // the warning panel will reflect the next /status poll.
+  launchBrowser: () => boolean;
+  launching: boolean;
 }
 
 export function useCrawlerSources(): UseCrawlerSourcesResult {
@@ -33,6 +39,7 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [launching, setLaunching] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,40 +93,33 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
     return () => timers.forEach((id) => window.clearTimeout(id));
   }, [error]);
 
-  // Auto-launch Chrome with --remote-debugging-port when CDP isn't ready
-  // and we have at least one Chrome profile available. Without this the
-  // "Thu thập" button stays disabled forever — the user has to launch
-  // Chrome by hand before opening the Crawl tab.
+  // launchBrowser is the shared payload used by both the auto-launch
+  // effect (so the user doesn't wait forever on the 30s poll) and the
+  // "Khởi động Chrome" button (so the user doesn't have to wait at
+  // all). Returns true when the request actually fires.
   //
   // We pick the first browser that has an `exe` + at least one profile
-  // (always Chrome on Windows in practice). If launch succeeds we trigger
-  // an immediate re-poll so the warning panel clears without waiting
-  // the full 30s.
-  useEffect(() => {
-    if (error) return;
-    if (launch?.ready === true) return;
-    if (browsers.length === 0) return;
+  // (always Chrome on Windows in practice). mdp-crawler's launch()
+  // passes `profile` straight to Chrome as `--profile-directory=<value>`,
+  // which expects the profile folder NAME (e.g. "Default", "Profile 8"),
+  // not a full User Data path. The User Data dir itself is the OS
+  // default (%LOCALAPPDATA%\Google\Chrome\User Data), reported by the
+  // /browsers endpoint as `user_data`.
+  //
+  // Chrome refuses --remote-debugging-port when --user-data-dir points
+  // at the "real" default User Data dir (it treats that dir as
+  // non-debuggable). Pass a SIBLING subdirectory like "<User Data>\
+  // CDPDebug" instead — Chrome sees it as a fresh profile dir and
+  // happily binds the debugger while leaving the everyday browser
+  // untouched.
+  const launchBrowser = useCallback((): boolean => {
     const target = browsers.find((b) => b.exe && b.profiles.length > 0);
-    if (!target || !target.exe) return;
+    if (!target || !target.exe) return false;
     const profile = target.profiles[0];
-    // mdp-crawler's launch() passes profile straight to Chrome as
-    // `--profile-directory=<value>`. Chrome expects the profile folder
-    // name (e.g. "Default", "Profile 8"), NOT the full User Data path —
-    // a full path is silently ignored and Chrome falls back to the
-    // default profile, which is usually already locked by another
-    // instance. The User Data dir is the OS default on Windows
-    // (%LOCALAPPDATA%\Google\Chrome\User Data), which is what `browsers`
-    // already reports as `user_data`.
-    if (!profile.dir) return;
-    // Chrome refuses --remote-debugging-port when --user-data-dir points
-    // to the "real" default User Data dir (the one used by the user's
-    // everyday browser). It treats that dir as non-debuggable. Pass a
-    // SIBLING subdirectory like "<User Data>\CDPDebug" instead — Chrome
-    // sees it as a fresh profile dir and happily binds the debugger
-    // while keeping cookies/sessions on the read-only default dir.
+    if (!profile.dir) return false;
     const userDataBase = target.user_data?.replace(/[\\/]+$/, '');
     const userDataDir = userDataBase ? `${userDataBase}\\CDPDebug` : undefined;
-    let cancelled = false;
+    setLaunching(true);
     fbFetch<{ ok?: boolean; error?: string }>('crawler/launch', {
       method: 'POST',
       body: JSON.stringify({
@@ -135,19 +135,30 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
       }),
     })
       .then(() => {
-        if (cancelled) return;
         // Re-poll so launch.ready reflects the new CDP debugger state.
         window.setTimeout(() => setTick((t) => t + 1), 1500);
       })
       .catch(() => {
-        // Swallow — the warning panel already covers the failure.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [error, launch?.ready, browsers]);
+        // Swallow — the warning panel covers the failure on next poll.
+      })
+      .finally(() => setLaunching(false));
+    return true;
+  }, [browsers]);
+
+  // Auto-launch Chrome with --remote-debugging-port when CDP isn't ready
+  // and we have at least one Chrome profile available. Without this the
+  // "Thu thập" button stays disabled forever — the user has to launch
+  // Chrome by hand before opening the Crawl tab. The user can also
+  // trigger the same payload immediately via launchBrowser() from the
+  // warning panel's manual button.
+  useEffect(() => {
+    if (error) return;
+    if (launch?.ready === true) return;
+    if (browsers.length === 0) return;
+    launchBrowser();
+  }, [error, launch?.ready, browsers, launchBrowser]);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  return { sources, launch, browsers, loading, error, reload };
+  return { sources, launch, browsers, loading, error, reload, launchBrowser, launching };
 }
