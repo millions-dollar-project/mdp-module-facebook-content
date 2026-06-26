@@ -46,7 +46,7 @@ func main() {
 	log.Info("starting", "config", cfg.String())
 
 	// Migrations first — fail fast if schema is broken.
-	if err := dbpkg.RunMigrationsUp(cfg.DatabaseURL); err != nil {
+	if err := dbpkg.RunMigrationsUp(cfg.DatabaseURL, log); err != nil {
 		log.Error("migrations failed", "err", err)
 		os.Exit(1)
 	}

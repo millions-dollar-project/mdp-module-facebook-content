@@ -3,7 +3,7 @@
 -- server-side only and MUST NEVER be returned via the API (handler strips
 -- it before serialising).
 
-CREATE TABLE facebook.config (
+CREATE TABLE IF NOT EXISTS facebook.config (
   id                   smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   page_id              text,
   page_access_token    text,

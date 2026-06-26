@@ -3,7 +3,7 @@
 -- a long-lived access token for. Tokens are stored plaintext for now —
 -- TODO Phase 3: encrypt at rest with APP_SECRET-derived key.
 
-CREATE TABLE facebook.pages (
+CREATE TABLE IF NOT EXISTS facebook.pages (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   page_id           text UNIQUE NOT NULL,        -- FB page ID (numeric string)
   page_name         text NOT NULL,
@@ -18,4 +18,4 @@ CREATE TABLE facebook.pages (
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX pages_is_active_idx ON facebook.pages (is_active);
+CREATE INDEX IF NOT EXISTS pages_is_active_idx ON facebook.pages (is_active);

@@ -34,9 +34,9 @@ func main() {
 	var err error
 	switch cmd {
 	case "up":
-		err = db.RunMigrationsUp(dsn)
+		err = db.RunMigrationsUp(dsn, nil)
 	case "down":
-		err = db.RunMigrationsDown(dsn)
+		err = db.RunMigrationsDown(dsn, nil)
 	case "version":
 		fmt.Println("(version not exposed via iofs; check schema_migrations table)")
 		return
