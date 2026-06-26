@@ -78,7 +78,15 @@ export async function fbFetch<T = unknown>(
   const shell = typeof window !== 'undefined' ? (window as ShellWindow).mdp : undefined;
   const useIpc = preferIpc && Boolean(shell?.ipc?.invoke);
 
-  if (useIpc) {
+  // Methods with a body go straight to proxy_to_backend. The shell's
+  // generic IPC channel (`facebook:<path>`) is meant for state mutation
+  // commands the shell knows about; it does NOT forward arbitrary POST
+  // bodies to the Go backend, so attempts on it silently misroute and
+  // look like "click does nothing" to the user. proxy_to_backend is the
+  // one path that actually delivers the body verbatim.
+  const skipGenericIpc = Boolean(body) && method !== 'GET';
+
+  if (useIpc && !skipGenericIpc) {
     try {
       return await ipcInvoke<T>(channel, body);
     } catch (err) {
