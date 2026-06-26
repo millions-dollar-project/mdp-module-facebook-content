@@ -482,6 +482,13 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   // panel and button-disable can reflect it without re-fetching.
   // Each failing condition is enumerated so the warning panel can
   // point at a specific fix instead of dumping the whole list.
+  //
+  // Note: `risk_ack` from the YAML is intentionally NOT a hard gate —
+  // mdp-crawler's /api/crawl forces cfg.risk_ack = True server-side
+  // before running (see web/app.py::_run_crawl), so any source the
+  // user picks via the dropdown WILL run. We surface it as a soft
+  // info banner instead so the user stays aware without the button
+  // being disabled for a gate the runner doesn't actually enforce.
   const accountModeChecks = React.useMemo(() => {
     const checks: { ok: boolean; msg: string }[] = [];
     if (crawlMode !== 'account') return checks;
@@ -511,17 +518,11 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
     const src = crawler.sources.find((s) => s.id === selectedSourceId);
     if (!src) {
       checks.push({ ok: false, msg: 'Chưa chọn tài khoản crawler' });
-    } else if (src.risk_ack === false) {
-      checks.push({ ok: false, msg: 'Cần xác nhận rủi ro ToS cho tài khoản này' });
     }
     // network/scrape sources need a logged-in browser attached.
     // CDP readiness is the LAST check — it's the only one we can fix
     // with a single click from this UI.
-    if (
-      src &&
-      src.risk_ack !== false &&
-      (src.render === 'network' || src.render === 'scrape')
-    ) {
+    if (src && (src.render === 'network' || src.render === 'scrape')) {
       const ready = crawler.launch?.ready === true;
       checks.push({
         ok: ready,
@@ -534,6 +535,11 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   }, [crawlMode, crawler, selectedSourceId]);
 
   const accountModeReady = accountModeChecks.every((c) => c.ok);
+
+  // Soft risk-ack banner — does NOT block the button. The runner
+  // overrides risk_ack to true anyway, so this is purely informational.
+  const selectedSource = crawler.sources.find((s) => s.id === selectedSourceId);
+  const tosWarning = selectedSource?.risk_ack === false;
 
   // The CDP check is the only one we can remediate from here; expose it
   // so the warning panel can attach a manual launch button.
@@ -785,6 +791,27 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                   )}
                 </span>
               ))}
+            </div>
+          )}
+          {/* Soft ToS banner — risk_ack=false is informational, not a gate.
+              The runner overrides it to true before execution, so picking a
+              gated source here will still run. We keep the copy visible so
+              the user knows they're crawling a higher-risk source. */}
+          {crawlMode === 'account' && tosWarning && (
+            <div
+              data-testid="crawl-tos-warning"
+              style={{
+                padding: '6px 10px',
+                borderRadius: 6,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--ds-info-border, #4a7fcb)',
+                fontSize: 12,
+                color: 'var(--text-primary)',
+                lineHeight: 1.5,
+              }}
+            >
+              ℹ Nguồn này vi phạm ToS Facebook (cào bằng tài khoản đã login). Ưu tiên
+              dùng <strong>profile burner</strong>, không chạy thường xuyên.
             </div>
           )}
           <p className="fb-muted" style={{ fontSize: 12, margin: 0 }}>
