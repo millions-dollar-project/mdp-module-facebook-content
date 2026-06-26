@@ -86,6 +86,58 @@ export function useCrawlerSources(): UseCrawlerSourcesResult {
     return () => timers.forEach((id) => window.clearTimeout(id));
   }, [error]);
 
+  // Auto-launch Chrome with --remote-debugging-port when CDP isn't ready
+  // and we have at least one Chrome profile available. Without this the
+  // "Thu thập" button stays disabled forever — the user has to launch
+  // Chrome by hand before opening the Crawl tab.
+  //
+  // We pick the first browser that has an `exe` + at least one profile
+  // (always Chrome on Windows in practice). If launch succeeds we trigger
+  // an immediate re-poll so the warning panel clears without waiting
+  // the full 30s.
+  useEffect(() => {
+    if (error) return;
+    if (launch?.ready === true) return;
+    if (browsers.length === 0) return;
+    const target = browsers.find((b) => b.exe && b.profiles.length > 0);
+    if (!target || !target.exe) return;
+    const profile = target.profiles[0];
+    // mdp-crawler's launch() passes profile straight to Chrome as
+    // `--profile-directory=<value>`. Chrome expects the profile folder
+    // name (e.g. "Default", "Profile 8"), NOT the full User Data path —
+    // a full path is silently ignored and Chrome falls back to the
+    // default profile, which is usually already locked by another
+    // instance. The User Data dir is the OS default on Windows
+    // (%LOCALAPPDATA%\Google\Chrome\User Data), which is what `browsers`
+    // already reports as `user_data`.
+    if (!profile.dir) return;
+    let cancelled = false;
+    fbFetch<{ ok?: boolean; error?: string }>('crawler/launch', {
+      method: 'POST',
+      body: JSON.stringify({
+        exe: target.exe,
+        profile: profile.dir,
+        port: 9222,
+        // force=true quits any lingering Chrome first so the new process
+        // owns the profile lock AND can bind --remote-debugging-port.
+        // Without this Chrome silently exits when another instance owns
+        // the default profile.
+        force: true,
+      }),
+    })
+      .then(() => {
+        if (cancelled) return;
+        // Re-poll so launch.ready reflects the new CDP debugger state.
+        window.setTimeout(() => setTick((t) => t + 1), 1500);
+      })
+      .catch(() => {
+        // Swallow — the warning panel already covers the failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [error, launch?.ready, browsers]);
+
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   return { sources, launch, browsers, loading, error, reload };
