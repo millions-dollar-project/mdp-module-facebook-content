@@ -3,6 +3,17 @@
  *
  * Mirrors the Go backend shapes from `backend/internal/models/brain*.go`
  * and the JSON envelope returned by the `/api/v1/facebook/brain/*` endpoints.
+ *
+ * IMPORTANT: Go's `encoding/json` marshals struct fields verbatim, so all
+ * keys arrive at the frontend with the original Go field-name casing
+ * (PascalCase: `Content`, `MediaURLs`, `CrawledPostID`). These TS interfaces
+ * intentionally mirror that casing so the data shape matches the wire format
+ * 1:1. Earlier revisions of this file used camelCase fields and required a
+ * runtime `camelCaseKeys` normalizer; that approach was abandoned because
+ * the conventions for acronym lowercasing (e.g. `crawledPostId` vs
+ * `crawledPostID`) are inconsistent across this codebase. Aligning TS
+ * directly with the wire format keeps both sides in sync and removes the
+ * need for runtime key rewriting.
  */
 
 export type BrainFeedStatus =
@@ -13,26 +24,26 @@ export type BrainFeedStatus =
   | 'failed';
 
 export interface BrainFeedItem {
-  id: string;
-  crawledPostId: string;
-  pageId: string;
-  pageName?: string;
-  content: string;
-  mediaUrls: string[];
-  videoUrls: string[];
-  thumbnailUrls?: string[];
-  fullPicture?: string;
-  mediaType: string;
-  likes: number;
-  comments: number;
-  shares: number;
-  postedAt: string; // ISO 8601
-  sourceUrl: string;
-  permalink: string;
-  brainContentId?: string;
-  ingestedAt: string; // ISO 8601
-  status: BrainFeedStatus;
-  errorMessage?: string;
+  ID: string;
+  CrawledPostID: string;
+  PageID: string;
+  PageName?: string;
+  Content: string;
+  MediaURLs: string[];
+  VideoURLs: string[];
+  ThumbnailURLs?: string[];
+  FullPicture?: string;
+  MediaType: string;
+  Likes: number;
+  Comments: number;
+  Shares: number;
+  PostedAt: string; // ISO 8601
+  SourceURL: string;
+  Permalink: string;
+  BrainContentID?: string;
+  IngestedAt: string; // ISO 8601
+  Status: BrainFeedStatus;
+  ErrorMessage?: string;
 }
 
 export interface BrainFeedListResponse {

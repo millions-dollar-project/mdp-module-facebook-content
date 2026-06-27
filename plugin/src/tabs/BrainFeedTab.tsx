@@ -44,7 +44,7 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
     search: filter.search || undefined,
   });
   const peekedFeed = useMemo(
-    () => data.items.find((i) => i.id === peekId) ?? null,
+    () => data.items.find((i) => i.ID === peekId) ?? null,
     [data.items, peekId],
   );
   const { remove } = useBrainDelete();
@@ -53,7 +53,7 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
   // Drop selection entries that scroll out of view (e.g. on page change or filter).
   useEffect(() => {
     setSelected((prev) => {
-      const visible = new Set(data.items.map((i) => i.id));
+      const visible = new Set(data.items.map((i) => i.ID));
       let changed = false;
       const next = new Set<string>();
       prev.forEach((id) => {
@@ -159,9 +159,9 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8 }}>
               {data.items.map((post) => (
                 <BrainFeedRow
-                  key={post.id}
+                  key={post.ID}
                   post={post}
-                  selected={selected.has(post.id)}
+                  selected={selected.has(post.ID)}
                   onToggle={handleToggle}
                   onDelete={handleDelete}
                   onPeek={setPeekId}

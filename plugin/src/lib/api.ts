@@ -13,11 +13,21 @@ export const DISPLAY = 'Facebook';
 // Convention from workspace root CLAUDE.md: facebook = 8081, but the
 // facebook-content module shares the prefix with the older facebook
 // module and dev runner splits them onto 8081 / 8086 respectively.
-// We default to 8086 (the content module) and let VITE_FB_PORT override.
+//
+// This plugin ships from mdp-module-facebook-content — its backend
+// lives on **8086**, not 8081 (8081 is the original mdp-module-facebook).
+// Letting the default slip back to 8081 was sending every brain/crawl
+// call to the older binary that doesn't have the kit-accounts / brain
+// routes — see "404 page not found" on Brain Feed panels.
 const envPort =
   typeof import.meta !== 'undefined' &&
   (import.meta as { env?: Record<string, string> }).env?.VITE_FB_PORT;
-export const BACKEND_PORT = envPort ?? '8086';
+// Use `||` (not `??`) so an empty string from `import.meta.env` (the
+// shape Vite produces when the build-time define replaces the env var
+// with an unset value) falls back to the default port. Otherwise we
+// end up with `http://localhost/api/v1/...` and the WebView refuses on
+// port 80.
+export const BACKEND_PORT = envPort || '8086';
 export const API_BASE = `http://localhost:${BACKEND_PORT}/api/v1/${PLATFORM}`;
 
 type ShellWindow = Window & {

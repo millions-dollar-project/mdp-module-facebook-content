@@ -12,22 +12,22 @@ import { BrainFeedRow } from './BrainFeedRow';
 import type { BrainFeedItem } from '../lib/types/brain';
 
 const basePost: BrainFeedItem = {
-  id: 'feed-1',
-  crawledPostId: 'u1',
-  pageId: 'p1',
-  pageName: 'Tech VN',
-  content: 'Aula F75 Silent deal — chiếc bàn phím êm nhất năm nay đã lên kệ',
-  mediaUrls: [],
-  videoUrls: [],
-  mediaType: 'text',
-  likes: 1200,
-  comments: 89,
-  shares: 45,
-  postedAt: new Date(Date.now() - 3600_000).toISOString(),
-  sourceUrl: 'https://facebook.com/...',
-  permalink: 'https://facebook.com/...',
-  ingestedAt: new Date().toISOString(),
-  status: 'ingested',
+  ID: 'feed-1',
+  CrawledPostID: 'u1',
+  PageID: 'p1',
+  PageName: 'Tech VN',
+  Content: 'Aula F75 Silent deal — chiếc bàn phím êm nhất năm nay đã lên kệ',
+  MediaURLs: [],
+  VideoURLs: [],
+  MediaType: 'text',
+  Likes: 1200,
+  Comments: 89,
+  Shares: 45,
+  PostedAt: new Date(Date.now() - 3600_000).toISOString(),
+  SourceURL: 'https://facebook.com/...',
+  Permalink: 'https://facebook.com/...',
+  IngestedAt: new Date().toISOString(),
+  Status: 'ingested',
 };
 
 beforeEach(() => {
@@ -59,7 +59,7 @@ it('calls onDelete when × clicked', () => {
 });
 
 it('truncates long content with ellipsis', () => {
-  const long: BrainFeedItem = { ...basePost, content: 'a'.repeat(200) };
+  const long: BrainFeedItem = { ...basePost, Content: 'a'.repeat(200) };
   render(<BrainFeedRow post={long} selected={false} onToggle={() => {}} onDelete={() => {}} />);
   const text = screen.getByText(/…$/);
   expect(text.textContent!.length).toBeLessThanOrEqual(121);

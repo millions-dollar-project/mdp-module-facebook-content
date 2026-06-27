@@ -23,18 +23,17 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({
   onDelete,
   onPeek,
 }) => {
-  // Defensive: backend currently returns `MediaURLs` (capitalized)
-  // without camelCase normalization, so `post.mediaUrls` is undefined
-  // for every row. Without the `?.[][0]` short-circuit the first
-  // BrainFeedRow render crashes with "Cannot read properties of
-  // undefined (reading '0')" and tears down the entire panel tree.
-  const mediaUrls: readonly string[] = post.mediaUrls ?? (post as unknown as { MediaURLs?: string[] }).MediaURLs ?? [];
-  const thumb = post.fullPicture ?? post.thumbnailUrls?.[0] ?? mediaUrls[0];
-  const preview = post.content.length > 120 ? post.content.slice(0, 120) + '…' : post.content;
-  const ago = formatAgo(post.postedAt);
+  // BrainFeedItem is typed PascalCase to match the Go backend wire format
+  // (see `lib/types/brain.ts`). MediaURLs / Content / PostedAt etc. arrive
+  // with their original casing. Defensive `?? []` covers rows that lack any
+  // attachments (no media URLs).
+  const mediaUrls: readonly string[] = post.MediaURLs ?? [];
+  const thumb = post.FullPicture ?? post.ThumbnailURLs?.[0] ?? mediaUrls[0];
+  const preview = post.Content.length > 120 ? post.Content.slice(0, 120) + '…' : post.Content;
+  const ago = formatAgo(post.PostedAt);
   return (
     <div
-      data-testid={`brain-feed-row-${post.id}`}
+      data-testid={`brain-feed-row-${post.ID}`}
       style={{
         display: 'flex',
         gap: 8,
@@ -51,9 +50,9 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({
       <input
         type="checkbox"
         checked={selected}
-        onChange={() => onToggle(post.id)}
-        aria-label={`Chọn bài ${post.permalink}`}
-        data-testid={`row-checkbox-${post.id}`}
+        onChange={() => onToggle(post.ID)}
+        aria-label={`Chọn bài ${post.Permalink}`}
+        data-testid={`row-checkbox-${post.ID}`}
       />
       <div
         style={{
@@ -69,20 +68,20 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({
       <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
         <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{preview}</div>
         <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--ds-text-muted)', marginTop: 2 }}>
-          <span>{post.pageName ?? post.pageId}</span>
+          <span>{post.PageName ?? post.PageID}</span>
           <span>·</span>
           <span>{ago}</span>
           <span>·</span>
-          <span>👍 {post.likes}</span>
+          <span>👍 {post.Likes}</span>
         </div>
       </div>
       {onPeek && (
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => onPeek(post.id)}
+          onClick={() => onPeek(post.ID)}
           aria-label="Brain peek"
-          data-testid={`row-peek-${post.id}`}
+          data-testid={`row-peek-${post.ID}`}
           style={{
             padding: '2px 8px',
             minWidth: 'auto',
@@ -96,9 +95,9 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({
       <Button
         size="sm"
         variant="ghost"
-        onClick={() => onDelete(post.id)}
+        onClick={() => onDelete(post.ID)}
         aria-label="Xoá"
-        data-testid={`row-delete-${post.id}`}
+        data-testid={`row-delete-${post.ID}`}
         style={{
           padding: '2px 6px',
           minWidth: 'auto',

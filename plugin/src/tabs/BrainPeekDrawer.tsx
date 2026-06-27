@@ -25,7 +25,7 @@ export const BrainPeekDrawer: React.FC<BrainPeekDrawerProps> = ({
   onClose,
   onFeedback,
 }) => {
-  const feedId = feed?.id ?? '';
+  const feedId = feed?.ID ?? '';
   const { data, loading, error } = useBrainProvenance(open ? feedId : '');
   const { submit, loading: submitting } = useBrainFeedback();
   const toast = useToast();
@@ -33,7 +33,7 @@ export const BrainPeekDrawer: React.FC<BrainPeekDrawerProps> = ({
 
   if (!feed) return null;
 
-  const titleSnippet = (feed.content || '').slice(0, 80);
+  const titleSnippet = (feed.Content || '').slice(0, 80);
 
   const handleAction = async (
     action: 'approved' | 'rejected' | 'edited',
@@ -70,8 +70,8 @@ export const BrainPeekDrawer: React.FC<BrainPeekDrawerProps> = ({
       {data && (
         <>
           <Section title="Trạng thái feed">
-            <span>{feed.status}</span>
-            {feed.brainContentId ? ` · brain: ${feed.brainContentId}` : ''}
+            <span>{feed.Status}</span>
+            {feed.BrainContentID ? ` · brain: ${feed.BrainContentID}` : ''}
           </Section>
           {data.feed && (
             <Section title="Nội dung gốc">
@@ -85,7 +85,7 @@ export const BrainPeekDrawer: React.FC<BrainPeekDrawerProps> = ({
                   borderRadius: 4,
                 }}
               >
-                {data.feed.content}
+                {data.feed.Content}
               </div>
             </Section>
           )}
