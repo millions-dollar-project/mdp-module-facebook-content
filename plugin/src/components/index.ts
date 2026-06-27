@@ -31,6 +31,8 @@ export type { SelectProps, SelectOption } from './Select';
 export { Modal } from './Modal';
 export type { ModalProps } from './Modal';
 
+export { ErrorBoundary } from './ErrorBoundary';
+
 export { ToastProvider, useToast } from './Toast';
 export type { ToastTone, ToastItem } from './Toast';
 

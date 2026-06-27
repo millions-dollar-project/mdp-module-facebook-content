@@ -23,7 +23,13 @@ const BrainFeedRowInner: React.FC<BrainFeedRowProps> = ({
   onDelete,
   onPeek,
 }) => {
-  const thumb = post.fullPicture ?? post.thumbnailUrls?.[0] ?? post.mediaUrls[0];
+  // Defensive: backend currently returns `MediaURLs` (capitalized)
+  // without camelCase normalization, so `post.mediaUrls` is undefined
+  // for every row. Without the `?.[][0]` short-circuit the first
+  // BrainFeedRow render crashes with "Cannot read properties of
+  // undefined (reading '0')" and tears down the entire panel tree.
+  const mediaUrls: readonly string[] = post.mediaUrls ?? (post as unknown as { MediaURLs?: string[] }).MediaURLs ?? [];
+  const thumb = post.fullPicture ?? post.thumbnailUrls?.[0] ?? mediaUrls[0];
   const preview = post.content.length > 120 ? post.content.slice(0, 120) + '…' : post.content;
   const ago = formatAgo(post.postedAt);
   return (

@@ -12,7 +12,7 @@
  * degrades gracefully to `console.log`.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, useToast } from '../components';
+import { Card, ErrorBoundary, useToast } from '../components';
 import { useBrainFeed } from '../hooks/useBrainFeed';
 import { useBrainDelete } from '../hooks/useBrainDelete';
 import { useBrainGenerate } from '../hooks/useBrainGenerate';
@@ -127,20 +127,23 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
 
   return (
     <div data-testid="brain-feed-tab">
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 12,
-          marginBottom: 12,
-        }}
-        key={dashboardTick}
-      >
-        <BrainOverviewPanel />
-        <BrainPersonaPanel />
-        <BrainGraphStats />
-      </div>
-      <BrainLearningPanel onApplied={() => setDashboardTick((t) => t + 1)} />
+      <ErrorBoundary label="dashboard">
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 12,
+            marginBottom: 12,
+          }}
+          key={dashboardTick}
+        >
+          <BrainOverviewPanel />
+          <BrainPersonaPanel />
+          <BrainGraphStats />
+        </div>
+        <BrainLearningPanel onApplied={() => setDashboardTick((t) => t + 1)} />
+      </ErrorBoundary>
+      <ErrorBoundary label="feed list">
       {!isEmpty && (
         <>
           <BrainFeedHeader
@@ -174,6 +177,8 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
           />
         </>
       )}
+      </ErrorBoundary>
+      <ErrorBoundary label="peek drawer">
       <BrainPeekDrawer
         feed={peekedFeed}
         open={peekId !== null}
@@ -183,6 +188,7 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
           reload();
         }}
       />
+      </ErrorBoundary>
     </div>
   );
 };
