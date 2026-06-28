@@ -303,12 +303,43 @@ func (c *BrainClient) Close() error {
 	return nil
 }
 
-// IngestContent calls the ingest_content tool on mdp-brain. Returns the
+// IngestParams is what IngestContent needs to call the mdp-brain tool
+// `brain_ingest_raw_input` (the actual tool name in mdp-brain — the old
+// `ingest_content` no longer exists).
+type IngestParams struct {
+	Content  string         // raw text
+	Source   string         // e.g. "facebook_crawl"
+	SourceID string         // idempotency key (post URL or hash)
+	Kind     string         // "post", "comment", ...
+	UserID   string         // owning user id; falls back to "default"
+	Metadata map[string]any // optional fields like likes/comments/page
+}
+
+// IngestContent calls brain_ingest_raw_input on mdp-brain and returns the
 // brain ingestion ID assigned to the content.
-func (c *BrainClient) IngestContent(ctx context.Context, content string) (string, error) {
+func (c *BrainClient) IngestContent(ctx context.Context, p IngestParams) (string, error) {
+	if p.Kind == "" {
+		p.Kind = "post"
+	}
+	if p.UserID == "" {
+		p.UserID = "default"
+	}
+	// The mdp-brain tool expects flat scope fields (user_id), not a nested
+	// "scope" object. Sending {scope:{...}} fails with "unexpected
+	// additional properties [\"scope\"]".
+	args := map[string]any{
+		"source":    p.Source,
+		"source_id": p.SourceID,
+		"kind":      p.Kind,
+		"content":   p.Content,
+		"user_id":   p.UserID,
+	}
+	if len(p.Metadata) > 0 {
+		args["metadata"] = p.Metadata
+	}
 	res, err := c.call(ctx, "tools/call", map[string]any{
-		"name":      "ingest_content",
-		"arguments": map[string]any{"content": content, "source": "facebook_crawl"},
+		"name":      "brain_ingest_raw_input",
+		"arguments": args,
 	})
 	if err != nil {
 		return "", err

@@ -16,7 +16,7 @@ const defaultMaxIngestConcurrency = 5
 // BrainClient is the surface of mcp.BrainClient we depend on. Defined here
 // so tests can inject fakes.
 type BrainClient interface {
-	IngestContent(ctx context.Context, content string) (string, error)
+	IngestContent(ctx context.Context, p mcp.IngestParams) (string, error)
 	PrepareContentInput(ctx context.Context, in mcp.PrepareInput) (*mcp.PrepareResult, error)
 }
 
@@ -98,7 +98,26 @@ func (s *BrainFeedService) Ingest(ctx context.Context, posts []models.CrawledPos
 				mu.Unlock()
 				return
 			}
-			brainID, err := s.bc.IngestContent(ctx, p.Content)
+			brainID, err := s.bc.IngestContent(ctx, mcp.IngestParams{
+				Content:  p.Content,
+				Source:   "facebook_crawl",
+				SourceID: p.SourceURL,
+				Kind:     "post",
+				UserID:   "default",
+				Metadata: map[string]any{
+					"likes":    p.Likes,
+					"comments": p.Comments,
+					"shares":   p.Shares,
+					"postedAt": p.PostedAt,
+					"pageId":   p.PageID,
+					"pageName": p.PageName,
+					"platform": "facebook",
+					"mediaUrls": func() []string {
+						out := append([]string{}, p.MediaURLs...)
+						return append(out, p.VideoURLs...)
+					}(),
+				},
+			})
 			if err != nil {
 				s.log.Warn("brain ingest mcp failed", "sourceURL", p.SourceURL, "err", err)
 				_ = s.store.UpdateStatus(ctx, row.ID, "failed", err.Error())

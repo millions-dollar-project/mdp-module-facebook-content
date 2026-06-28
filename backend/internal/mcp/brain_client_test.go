@@ -68,9 +68,27 @@ func main(){
 			return
 		}
 		m,_:=req["method"].(string)
-		if m != "tools/call" {
-			// Do not respond — let the client hit its timeout.
+		switch m {
+		case "initialize":
+			resp := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req["id"],
+				"result": map[string]any{
+					"protocolVersion": "2025-03-26",
+					"serverInfo":      map[string]any{"name": "stub-brain", "version": "v0"},
+					"capabilities":    map[string]any{},
+				},
+			}
+			_ = enc.Encode(resp)
 			continue
+		case "notifications/initialized":
+			// notification — no reply
+			continue
+		default:
+			if m != "tools/call" {
+				// Do not respond — let the client hit its timeout.
+				continue
+			}
 		}
 		resp := map[string]any{"jsonrpc":"2.0","id":req["id"]}
 		if i < len(lines) {
@@ -133,7 +151,13 @@ func TestBrainClient_IngestContent_ReturnsID(t *testing.T) {
 	defer srv.Close()
 
 	c := newClientFromStub(t, srv, 5*time.Second)
-	got, err := c.IngestContent(context.Background(), "hello world")
+	got, err := c.IngestContent(context.Background(), IngestParams{
+		Content:  "hello world",
+		Source:   "test",
+		SourceID: "test-1",
+		Kind:     "post",
+		UserID:   "default",
+	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -171,7 +195,12 @@ func TestBrainClient_MalformedResponse_ReturnsError(t *testing.T) {
 	defer srv.Close()
 
 	c := newClientFromStub(t, srv, 5*time.Second)
-	_, err := c.IngestContent(context.Background(), "x")
+	_, err := c.IngestContent(context.Background(), IngestParams{
+		Content:  "x",
+		Source:   "test",
+		SourceID: "test-x",
+		Kind:     "post",
+	})
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
