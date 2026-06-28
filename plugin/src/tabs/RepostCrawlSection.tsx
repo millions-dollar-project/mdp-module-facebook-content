@@ -22,13 +22,12 @@
  * (RepostTab) mở RepostPlanModal để user chọn account + group + time.
  */
 import React from 'react';
-import { Button, Card, FormField, Input, Textarea, useToast } from '../components';
+import { Button, Card, FormField, Input, Modal, Textarea, useToast } from '../components';
 import { fbFetch } from '../lib/api';
 import { openExternal } from '../lib/external';
-import type { FBAccount } from '../lib/types';
+import type { FBAccount, CrawledPostReal } from '../lib/types';
 import { useBrainIngest } from '../hooks/useBrainIngest';
-import { useCrawlerSources } from '../hooks/useCrawlerSources';
-import { CRAWLER_PORT, buildProfileDir, type CrawlTrend } from '../lib/crawlerApi';
+import { useFBAccounts, createAccount, pollAccountLoginStatus } from '../hooks/useRepost';
 
 type CrawlMode = 'page' | 'account';
 
@@ -105,33 +104,13 @@ const parseDate = (s: string | number | null | undefined): Date | null => {
   return isNaN(d.getTime()) || d.getTime() <= 0 ? null : d;
 };
 
-/**
- * Convert an mdp-crawler trend row into the CrawledPost shape the UI
- * already knows how to render. The trend table is intentionally thin
- * (id, author, text, posted_at, stats, url) — fields like mediaUrls,
- * reactions and a stable pageId are filled with safe defaults so the
- * card grid doesn't crash.
- */
-const crawlerTrendToPost = (t: CrawlTrend, pageId: string): CrawledPost => {
-  const postedAtRaw = (t.posted_at as string | number | undefined) ?? '';
-  const date = parseDate(postedAtRaw);
-  return {
-    id: String(t.id ?? t.post_id ?? crypto.randomUUID()),
-    pageId,
-    content: String(t.text ?? ''),
-    fullContent: String(t.text ?? ''),
-    mediaUrls: [],
-    videoUrls: [],
-    mediaType: 'text',
-    likes: Number(t.likes ?? 0),
-    comments: Number(t.comments ?? 0),
-    shares: Number(t.shares ?? 0),
-    postedAt: date ? date.toISOString() : String(postedAtRaw),
-    permalink: String(t.url ?? ''),
-  };
-};
+export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpenBrainFeed }) => {
+  // Hardcoded newsfeed URL — Phase 2 user request: "không dùng crawler,
+  // cứng hiển thị facebook.com làm crawl newsfeed". Declared FIRST so
+  // every useMemo / handler closure below can capture it without
+  // tripping the temporal dead zone (TDZ) at first render.
+  const NEWSFEED_URL = 'https://www.facebook.com/';
 
-export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedule, onOpenBrainFeed }) => {
   const [pageUrl, setPageUrl] = React.useState('');
   const [maxPosts, setMaxPosts] = React.useState(10);
   // Tự fill ngày hiện tại vào "Từ ngày" — user yêu cầu mặc định là hôm nay.
@@ -144,33 +123,6 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   // đã login). Khi 'account' user chọn 1 source từ /api/sources.
   const [crawlMode, setCrawlMode] = React.useState<CrawlMode>('page');
   const [selectedSourceId, setSelectedSourceId] = React.useState('');
-  const crawler = useCrawlerSources();
-  // In 'account' mode the dropdown below the source picker shows the
-  // real Chrome user profiles installed on the user's machine (returned
-  // by mdp-crawler's /api/browsers) — NOT rows from the fb_accounts
-  // table. We store the selection as `<browserId>::<profileDir>` so
-  // mdp-crawler can resolve it back to the on-disk User Data dir.
-  const [selectedBrowserProfileKey, setSelectedBrowserProfileKey] = React.useState('');
-  const chromeProfiles = React.useMemo(() => {
-    const out: { browserId: string; dir: string; label: string }[] = [];
-    for (const br of crawler.browsers ?? []) {
-      for (const p of br.profiles ?? []) {
-        out.push({ browserId: br.id, dir: p.dir, label: p.label });
-      }
-    }
-    return out;
-  }, [crawler.browsers]);
-  const selectedBrowserProfile = React.useMemo(
-    () => chromeProfiles.find((p) => `${p.browserId}::${p.dir}` === selectedBrowserProfileKey) ?? null,
-    [chromeProfiles, selectedBrowserProfileKey],
-  );
-  // Auto-pick first profile once it loads so the user doesn't have to
-  // click before clicking "Thu thập".
-  React.useEffect(() => {
-    if (!selectedBrowserProfileKey && chromeProfiles.length > 0) {
-      setSelectedBrowserProfileKey(`${chromeProfiles[0].browserId}::${chromeProfiles[0].dir}`);
-    }
-  }, [chromeProfiles, selectedBrowserProfileKey]);
   const [posts, setPosts] = React.useState<CrawledPost[]>([]);
   const [lastCrawlLimit, setLastCrawlLimit] = React.useState<number | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -184,6 +136,119 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   const [lastIngestedCount, setLastIngestedCount] = React.useState<number>(0);
   const toast = useToast();
   const { ingest } = useBrainIngest();
+
+  // "Thêm tài khoản Facebook" — credentials-first. User nhập name + email +
+  // password; backend tạo row rồi forward password cho sidecar tự mở browser
+  // ở chế độ visible, điền form login, chờ user xác minh 2FA/checkpoint.
+  // Password KHÔNG bao giờ được persist xuống DB.
+  const { data: fbAccounts, reload: reloadAccounts } = useFBAccounts();
+  // Auto-pick first kit-account for the "Tài khoản crawler" dropdown so
+  // the user has a sensible default once the kit list loads.
+  React.useEffect(() => {
+    if (!selectedSourceId && fbAccounts && fbAccounts.length > 0) {
+      setSelectedSourceId(fbAccounts[fbAccounts.length - 1].name);
+    }
+  }, [fbAccounts, selectedSourceId]);
+  const [accModalOpen, setAccModalOpen] = React.useState(false);
+  const [accForm, setAccForm] = React.useState({
+    name: '',
+    profilePath: '',
+    email: '',
+    password: '',
+    cookiesJson: '',
+  });
+  const [accSubmitting, setAccSubmitting] = React.useState(false);
+  const [accLoginStatus, setAccLoginStatus] = React.useState<string>('');
+  const [accLoginErr, setAccLoginErr] = React.useState<string>('');
+
+  // Auto-fill profile path slug từ name lần đầu name được set.
+  React.useEffect(() => {
+    if (!accForm.profilePath && accForm.name) {
+      const slug = accForm.name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      if (slug) setAccForm((s) => ({ ...s, profilePath: `~/.mdp/facebook/profiles/${slug}` }));
+    }
+  }, [accForm.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pollAndClose = React.useCallback(
+    async (sessionId: string, onSuccess: () => void) => {
+      setAccLoginStatus('Đang chờ đăng nhập trong trình duyệt…');
+      for (let i = 0; i < 300; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const s = await pollAccountLoginStatus(sessionId);
+          setAccLoginStatus(
+            s.status === 'completed'
+              ? 'Đăng nhập thành công'
+              : s.status === 'failed'
+              ? 'Đăng nhập thất bại'
+              : s.status === 'running'
+              ? 'Đang chờ bạn xác minh (2FA / checkpoint) trong trình duyệt…'
+              : s.status
+          );
+          if (s.status === 'completed') {
+            onSuccess();
+            return;
+          }
+          if (s.status === 'failed' || s.status === 'expired') {
+            setAccLoginErr(s.lastError || s.status);
+            return;
+          }
+        } catch {
+          // transient — keep polling
+        }
+      }
+    },
+    []
+  );
+
+  const handleAddAccount = async () => {
+    setAccSubmitting(true);
+    setAccLoginErr('');
+    setAccLoginStatus('');
+    try {
+      const out = await createAccount({
+        name: accForm.name,
+        profilePath: accForm.profilePath,
+        email: accForm.email || undefined,
+        cookiesJson: accForm.cookiesJson || undefined,
+        password: accForm.password || undefined,
+      });
+      reloadAccounts();
+      if (out.sessionId) {
+        await pollAndClose(out.sessionId, () => {
+          setAccModalOpen(false);
+          setAccForm({ name: '', profilePath: '', email: '', password: '', cookiesJson: '' });
+          toast.success(`Đã tạo và đăng nhập "${accForm.name}"`);
+        });
+      } else {
+        setAccModalOpen(false);
+        setAccForm({ name: '', profilePath: '', email: '', password: '', cookiesJson: '' });
+        if (out.loginErr) {
+          toast.warning(`Đã tạo tài khoản nhưng đăng nhập thất bại: ${out.loginErr}`);
+        } else {
+          toast.success(`Đã tạo tài khoản "${accForm.name}"`);
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setAccLoginErr(msg);
+      toast.error(`Lỗi tạo tài khoản: ${msg}`);
+    } finally {
+      setAccSubmitting(false);
+    }
+  };
+
+  const closeAccModal = () => {
+    if (accSubmitting) return;
+    setAccModalOpen(false);
+    setAccLoginErr('');
+    setAccLoginStatus('');
+  };
 
   /**
    * Push freshly crawled posts to Brain. Always-on per the T13 plan
@@ -240,14 +305,14 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   );
 
   React.useEffect(() => {
-    if (!selectedAccountId && accounts.length > 0) {
-      setSelectedAccountId(accounts[accounts.length - 1].id);
+    if (!selectedAccountId && fbAccounts.length > 0) {
+      setSelectedAccountId(fbAccounts[fbAccounts.length - 1].id);
     }
-  }, [accounts, selectedAccountId]);
+  }, [fbAccounts, selectedAccountId]);
 
   const selectedAccount = React.useMemo(() => {
-    return accounts.find((account) => account.id === selectedAccountId) ?? accounts[accounts.length - 1] ?? null;
-  }, [accounts, selectedAccountId]);
+    return fbAccounts.find((account) => account.id === selectedAccountId) ?? fbAccounts[fbAccounts.length - 1] ?? null;
+  }, [fbAccounts, selectedAccountId]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -271,23 +336,22 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   const sortedPosts = posts;
 
   // Compute the effective target the user wants to crawl. In 'page'
-  // mode it's a free URL. In 'account' mode it's the source's first
-  // entry_url (mdp-crawler sources are pre-configured to the right
-  // start URL — feed, newsfeed, etc.).
+  // mode it's a free URL. In 'account' mode (kit-accounts) it's the
+  // hardcoded newsfeed URL — the selected kit-account is who fetches
+  // it, not where they fetch from.
   const effectiveTarget = React.useMemo(() => {
     if (crawlMode === 'account') {
-      const src = crawler.sources.find((s) => s.id === selectedSourceId);
-      return src?.entry_urls?.[0] ?? '';
+      return NEWSFEED_URL;
     }
     return pageUrl.trim();
-  }, [crawlMode, pageUrl, crawler.sources, selectedSourceId]);
+  }, [crawlMode, pageUrl]);
 
   const handleCrawl = async () => {
     if (!effectiveTarget) {
       toast.warning(
         crawlMode === 'page'
           ? 'Nhập URL trang Facebook trước'
-          : 'Chọn 1 tài khoản (mdp-crawler source) trước'
+          : 'Chọn 1 tài khoản Facebook trước'
       );
       return;
     }
@@ -300,30 +364,40 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
       let data: CrawledPost[];
       let fellBack = false;
       if (crawlMode === 'account') {
-        // Account mode: route through mdp-crawler. The Go sidecar has no
-        // access to the user's logged-in CDP browser, so calling it would
-        // hit Facebook's login wall. mdp-crawler writes trends to its own
-        // DB; we read them back to populate the list.
-        //
-        // If the user picked a Chrome profile from the dropdown below the
-        // source picker, forward its on-disk User Data dir so Playwright
-        // launches with that profile's cookies / login session.
-        const profileDir = selectedBrowserProfile
-          ? buildProfileDir(crawler.browsers, selectedBrowserProfile.browserId, selectedBrowserProfile.dir)
-          : null;
-        const run = await fbFetch<{ error?: string | null }>('crawler/crawl', {
-          method: 'POST',
-          body: {
-            source: selectedSourceId,
-            port: 9222,
-            ...(profileDir ? { profile_dir: profileDir } : {}),
+        // Phase 2: account mode hits the Go backend's /crawl endpoint
+        // directly with the selected kit-account's name. The backend
+        // proxies to the Playwright sidecar which uses the kit-account's
+        // persisted profile (~/.mdp/facebook/profiles/<name>/) for
+        // cookies. We DO NOT depend on mdp-crawler for the crawl.
+        const raw = await fbFetch<CrawledPostReal[] | { data?: CrawledPostReal[]; error?: string }>(
+          'crawl',
+          {
+            method: 'POST',
+            body: {
+              pageUrl: NEWSFEED_URL,
+              pageId: selectedSourceId,
+              limit: maxPosts,
+            },
           },
-        });
-        if (run.error) {
-          throw new Error(run.error);
+        );
+        if (raw && typeof raw === 'object' && 'error' in raw && (raw as { error?: string }).error) {
+          throw new Error((raw as { error: string }).error);
         }
-        const trends = await fbFetch<CrawlTrend[]>(`crawler/trends?limit=${maxPosts}`);
-        data = (Array.isArray(trends) ? trends : []).map((t) => crawlerTrendToPost(t, selectedSourceId));
+        const list = Array.isArray(raw) ? raw : raw?.data ?? [];
+        data = list.map((t: CrawledPostReal) => ({
+          id: String(t.id ?? t.fbPostId ?? crypto.randomUUID()),
+          pageId: selectedSourceId,
+          content: String(t.content ?? ''),
+          fullContent: String(t.content ?? ''),
+          mediaUrls: t.mediaUrls ?? [],
+          videoUrls: [],
+          mediaType: (t.mediaType as 'text' | 'photo' | 'video' | 'link') ?? 'text',
+          likes: Number(t.likes ?? 0),
+          comments: Number(t.comments ?? 0),
+          shares: Number(t.shares ?? 0),
+          postedAt: String(t.postedAt ?? ''),
+          permalink: String(t.permalink ?? ''),
+        }));
       } else {
         // Lần 1: dùng untilDate (nếu user đã điền / mặc định hôm nay).
         // Gửi accountId của account active đầu tiên (nếu có) để sidecar
@@ -394,7 +468,7 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
       toast.warning(
         crawlMode === 'page'
           ? 'Nhập URL trang Facebook trước'
-          : 'Chọn 1 tài khoản (mdp-crawler source) trước'
+          : 'Chọn 1 tài khoản Facebook trước'
       );
       return;
     }
@@ -402,15 +476,36 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
     try {
       let data: CrawledPost[];
       if (crawlMode === 'account') {
-        const run = await fbFetch<{ error?: string | null }>('crawler/crawl', {
-          method: 'POST',
-          body: { source: selectedSourceId },
-        });
-        if (run.error) {
-          throw new Error(run.error);
+        // Phase 2: same path as handleCrawl — kit-account + newsfeed.
+        const raw = await fbFetch<CrawledPostReal[] | { data?: CrawledPostReal[]; error?: string }>(
+          'crawl',
+          {
+            method: 'POST',
+            body: {
+              pageUrl: NEWSFEED_URL,
+              pageId: selectedSourceId,
+              limit: maxPosts,
+            },
+          },
+        );
+        if (raw && typeof raw === 'object' && 'error' in raw && (raw as { error?: string }).error) {
+          throw new Error((raw as { error: string }).error);
         }
-        const trends = await fbFetch<CrawlTrend[]>(`crawler/trends?limit=${maxPosts}`);
-        data = (Array.isArray(trends) ? trends : []).map((t) => crawlerTrendToPost(t, selectedSourceId));
+        const list = Array.isArray(raw) ? raw : raw?.data ?? [];
+        data = list.map((t: CrawledPostReal) => ({
+          id: String(t.id ?? t.fbPostId ?? crypto.randomUUID()),
+          pageId: selectedSourceId,
+          content: String(t.content ?? ''),
+          fullContent: String(t.content ?? ''),
+          mediaUrls: t.mediaUrls ?? [],
+          videoUrls: [],
+          mediaType: (t.mediaType as 'text' | 'photo' | 'video' | 'link') ?? 'text',
+          likes: Number(t.likes ?? 0),
+          comments: Number(t.comments ?? 0),
+          shares: Number(t.shares ?? 0),
+          postedAt: String(t.postedAt ?? ''),
+          permalink: String(t.permalink ?? ''),
+        }));
       } else {
         data = await fbFetch<CrawledPost[]>('crawl-page-v2', {
           method: 'POST',
@@ -432,7 +527,7 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
       } else {
         toast.success(
           crawlMode === 'account'
-            ? `Đã thu thập ${data.length} bài từ tài khoản (mdp-crawler)`
+            ? `Đã thu thập ${data.length} bài từ tài khoản "${selectedSourceId}"`
             : `Đã thu thập ${data.length} bài mới nhất (bỏ lọc ngày)`
         );
         void autoIngestPosts(data);
@@ -462,7 +557,7 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
   };
 
   const handleSchedule = (post: CrawledPost) => {
-    if (!accounts.length || !groups.length) {
+    if (!fbAccounts.length || !groups.length) {
       toast.warning('Cần ít nhất 1 tài khoản và 1 nhóm để lên lịch');
       return;
     }
@@ -480,72 +575,27 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
 
   // Compute prerequisite status for 'account' mode so the warning
   // panel and button-disable can reflect it without re-fetching.
-  // Each failing condition is enumerated so the warning panel can
-  // point at a specific fix instead of dumping the whole list.
   //
-  // Note: `risk_ack` from the YAML is intentionally NOT a hard gate —
-  // mdp-crawler's /api/crawl forces cfg.risk_ack = True server-side
-  // before running (see web/app.py::_run_crawl), so any source the
-  // user picks via the dropdown WILL run. We surface it as a soft
-  // info banner instead so the user stays aware without the button
-  // being disabled for a gate the runner doesn't actually enforce.
+  // Phase 2: account mode now uses kit-accounts (~/mdp-data/accounts/)
+  // instead of mdp-crawler sources. The only requirement is that the
+  // user has selected a kit-account — there's no CDP / launch /
+  // network probe gating the "Thu thập" button.
   const accountModeChecks = React.useMemo(() => {
     const checks: { ok: boolean; msg: string }[] = [];
     if (crawlMode !== 'account') return checks;
-    if (crawler.loading) {
+    if (fbAccounts === undefined) {
       checks.push({ ok: false, msg: 'Đang tải danh sách tài khoản…' });
       return checks;
     }
-    if (crawler.error) {
-      checks.push({
-        ok: false,
-        msg: 'mdp-crawler không phản hồi — chạy `npm run dev:win`',
-      });
-      return checks;
-    }
-    checks.push({
-      ok: true,
-      msg: `mdp-crawler đang chạy (port ${CRAWLER_PORT})`,
-    });
-    if (crawler.sources.length === 0) {
-      checks.push({ ok: false, msg: 'Chưa có tài khoản nào trong sources/' });
+    if (!selectedSourceId) {
+      checks.push({ ok: false, msg: 'Chưa chọn tài khoản' });
     } else {
-      checks.push({
-        ok: true,
-        msg: `${crawler.sources.length} tài khoản crawler khả dụng`,
-      });
-    }
-    const src = crawler.sources.find((s) => s.id === selectedSourceId);
-    if (!src) {
-      checks.push({ ok: false, msg: 'Chưa chọn tài khoản crawler' });
-    }
-    // network/scrape sources need a logged-in browser attached.
-    // CDP readiness is the LAST check — it's the only one we can fix
-    // with a single click from this UI.
-    if (src && (src.render === 'network' || src.render === 'scrape')) {
-      const ready = crawler.launch?.ready === true;
-      checks.push({
-        ok: ready,
-        msg: ready
-          ? 'Chrome CDP sẵn sàng (port 9222)'
-          : 'Chrome chưa khởi động — bấm "Khởi động Chrome"',
-      });
+      checks.push({ ok: true, msg: `Đang dùng tài khoản "${selectedSourceId}"` });
     }
     return checks;
-  }, [crawlMode, crawler, selectedSourceId]);
+  }, [crawlMode, fbAccounts, selectedSourceId]);
 
   const accountModeReady = accountModeChecks.every((c) => c.ok);
-
-  // Soft risk-ack banner — does NOT block the button. The runner
-  // overrides risk_ack to true anyway, so this is purely informational.
-  const selectedSource = crawler.sources.find((s) => s.id === selectedSourceId);
-  const tosWarning = selectedSource?.risk_ack === false;
-
-  // The CDP check is the only one we can remediate from here; expose it
-  // so the warning panel can attach a manual launch button.
-  const cdpMissing = accountModeChecks.some(
-    (c) => !c.ok && c.msg.startsWith('Chrome chưa khởi động')
-  );
 
   return (
     <div className="fb-crawl-section">
@@ -605,11 +655,25 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
             >
               {/* Source picker (mdp-crawler YAML). Render-mode badges go
                   inside each <option> so the dropdown stays self-explanatory. */}
-              <FormField label="Tài khoản crawler">
+              <FormField
+                label={
+                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <span>Tài khoản crawler</span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setAccModalOpen(true)}
+                      data-testid="open-add-account"
+                    >
+                      + Thêm tài khoản
+                    </Button>
+                  </span>
+                }
+              >
                 <select
                   value={selectedSourceId}
                   onChange={(e) => setSelectedSourceId(e.target.value)}
-                  disabled={crawler.loading}
+                  disabled={fbAccounts === undefined}
                   style={{
                     width: '100%',
                     minHeight: 40,
@@ -620,71 +684,37 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                     padding: '0 10px',
                   }}
                 >
-                  {crawler.loading && <option value="">Đang tải…</option>}
-                  {!crawler.loading && crawler.error && (
-                    <option value="">mdp-crawler chưa chạy</option>
+                  {/* Phase 2: list kit-accounts (~/mdp-data/accounts/) instead
+                      of mdp-crawler sources. The kit-accounts backend lives
+                      at /api/v1/facebook/kit-accounts and returns
+                      {accounts: [{name, platform, status, ...}]}.
+                      This is the source of truth for "Tài khoản của tôi"
+                      so users see accounts they've actually logged into
+                      via the kit-accounts login flow. */}
+                  {fbAccounts === undefined && <option value="">Đang tải…</option>}
+                  {fbAccounts !== undefined && fbAccounts.length === 0 && (
+                    <option value="">Chưa có tài khoản — bấm "+ Thêm tài khoản"</option>
                   )}
-                  {!crawler.loading && !crawler.error && crawler.sources.length === 0 && (
-                    <option value="">Chưa có source</option>
-                  )}
-                  {!crawler.loading && !crawler.error && crawler.sources.length > 0 && (
+                  {fbAccounts !== undefined && fbAccounts.length > 0 && (
                     <>
                       <option value="">— chọn —</option>
-                      {crawler.sources.map((src) => {
-                        const tags: string[] = [];
-                        if (src.render) tags.push(src.render);
-                        if (src.has_profile_dir) tags.push('profile');
-                        if (src.has_cdp_url) tags.push('cdp');
-                        if (src.enabled) tags.push('on');
-                        return (
-                          <option key={src.id} value={src.id}>
-                            {src.id}
-                            {tags.length > 0 ? ` · ${tags.join(' · ')}` : ''}
-                          </option>
-                        );
-                      })}
+                      {fbAccounts.map((acc) => (
+                        <option key={acc.id} value={acc.name}>
+                          {acc.name}
+                          {acc.status ? ` · ${acc.status}` : ''}
+                          {acc.lastUsedAt
+                            ? ` · dùng ${new Date(acc.lastUsedAt).toLocaleDateString('vi-VN')}`
+                            : ''}
+                        </option>
+                      ))}
                     </>
                   )}
                 </select>
                 {selectedSourceId && (
                   <div className="fb-muted" style={{ fontSize: 11, marginTop: 4 }}>
-                    {crawler.sources.find((s) => s.id === selectedSourceId)?.entry_urls?.[0] ?? ''}
+                    {fbAccounts?.find((a) => a.name === selectedSourceId)?.profilePath ?? ''}
                   </div>
                 )}
-              </FormField>
-
-              {/* Chrome user-profile picker. Only meaningful in 'account'
-                  mode — it's the on-disk profile whose cookies / login
-                  session the crawler should reuse. */}
-              <FormField label="Profile đang đăng nhập">
-                <select
-                  value={selectedBrowserProfileKey}
-                  onChange={(e) => setSelectedBrowserProfileKey(e.target.value)}
-                  disabled={crawler.loading || chromeProfiles.length === 0}
-                  style={{
-                    width: '100%',
-                    minHeight: 40,
-                    borderRadius: 8,
-                    border: '1px solid var(--ds-border)',
-                    background: 'var(--bg-surface)',
-                    color: 'var(--text-primary)',
-                    padding: '0 10px',
-                  }}
-                >
-                  {chromeProfiles.length === 0 ? (
-                    <option value="">Chưa phát hiện profile</option>
-                  ) : (
-                    chromeProfiles.map((p) => (
-                      <option
-                        key={`${p.browserId}::${p.dir}`}
-                        value={`${p.browserId}::${p.dir}`}
-                        title={p.label}
-                      >
-                        {p.label}
-                      </option>
-                    ))
-                  )}
-                </select>
               </FormField>
             </div>
           )}
@@ -774,44 +804,8 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
                 >
                   <span style={{ width: 14 }}>{c.ok ? '✓' : '✗'}</span>
                   <span style={{ flex: 1 }}>{c.msg}</span>
-                  {!c.ok && cdpMissing && c.msg.startsWith('Chrome chưa khởi động') && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={crawler.launching}
-                      onClick={() => {
-                        const fired = crawler.launchBrowser();
-                        if (!fired) {
-                          toast.warning('Chưa tìm thấy profile Chrome — mở Chrome ít nhất 1 lần rồi tải lại');
-                        }
-                      }}
-                    >
-                      {crawler.launching ? 'Đang mở…' : 'Khởi động Chrome'}
-                    </Button>
-                  )}
                 </span>
               ))}
-            </div>
-          )}
-          {/* Soft ToS banner — risk_ack=false is informational, not a gate.
-              The runner overrides it to true before execution, so picking a
-              gated source here will still run. We keep the copy visible so
-              the user knows they're crawling a higher-risk source. */}
-          {crawlMode === 'account' && tosWarning && (
-            <div
-              data-testid="crawl-tos-warning"
-              style={{
-                padding: '6px 10px',
-                borderRadius: 6,
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--ds-info-border, #4a7fcb)',
-                fontSize: 12,
-                color: 'var(--text-primary)',
-                lineHeight: 1.5,
-              }}
-            >
-              ℹ Nguồn này vi phạm ToS Facebook (cào bằng tài khoản đã login). Ưu tiên
-              dùng <strong>profile burner</strong>, không chạy thường xuyên.
             </div>
           )}
           <p className="fb-muted" style={{ fontSize: 12, margin: 0 }}>
@@ -821,6 +815,108 @@ export const RepostCrawlSection: React.FC<Props> = ({ accounts, groups, onSchedu
           </p>
         </div>
       </Card>
+
+      {/* Modal "Thêm tài khoản Facebook" — credentials-first. Sidecar tự
+          mở Chrome ở chế độ visible, điền email + password, và chờ user xác
+          minh 2FA/checkpoint nếu cần. Password KHÔNG bao giờ được lưu DB. */}
+      <Modal
+        open={accModalOpen}
+        onClose={closeAccModal}
+        title="Thêm tài khoản Facebook"
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeAccModal} disabled={accSubmitting}>
+              Hủy
+            </Button>
+            <Button
+              onClick={handleAddAccount}
+              disabled={accSubmitting || !accForm.name || !accForm.email || !accForm.password}
+            >
+              {accSubmitting ? 'Đang đăng nhập…' : 'Thêm + đăng nhập'}
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <FormField label="Tên hiển thị" required>
+            <Input
+              value={accForm.name}
+              onChange={(e) => setAccForm((s) => ({ ...s, name: e.target.value }))}
+              placeholder="vd: Nguyễn Văn A"
+            />
+          </FormField>
+          <FormField label="Profile path" hint="Tự sinh từ tên — sửa nếu muốn">
+            <Input
+              value={accForm.profilePath}
+              onChange={(e) => setAccForm((s) => ({ ...s, profilePath: e.target.value }))}
+              placeholder="~/.mdp/facebook/profiles/<tên-slug>"
+            />
+          </FormField>
+          <FormField label="Email / SĐT đăng nhập" required>
+            <Input
+              type="email"
+              value={accForm.email}
+              onChange={(e) => setAccForm((s) => ({ ...s, email: e.target.value }))}
+              placeholder="email hoặc số điện thoại"
+            />
+          </FormField>
+          <FormField
+            label="Mật khẩu"
+            required
+            hint="Chỉ dùng để đăng nhập 1 lần — không lưu lại"
+          >
+            <Input
+              type="password"
+              value={accForm.password}
+              onChange={(e) => setAccForm((s) => ({ ...s, password: e.target.value }))}
+              placeholder="Mật khẩu Facebook"
+            />
+          </FormField>
+          <FormField label="Cookies JSON (tuỳ chọn)" hint="Dán từ extension để bỏ qua đăng nhập">
+            <Textarea
+              value={accForm.cookiesJson}
+              onChange={(e) => setAccForm((s) => ({ ...s, cookiesJson: e.target.value }))}
+              rows={3}
+              placeholder='[{"name": "c_user", "value": "...", "domain": ".facebook.com"}, ...]'
+            />
+          </FormField>
+          <p className="fb-muted" style={{ fontSize: 12, margin: 0 }}>
+            Khi bấm "Thêm + đăng nhập" hệ thống sẽ tự mở trình duyệt ở chế độ
+            hiện, điền email + mật khẩu rồi chờ bạn xác minh 2FA / checkpoint
+            nếu Facebook yêu cầu.
+          </p>
+          {accLoginStatus && (
+            <div
+              data-testid="acc-login-status"
+              style={{
+                padding: '8px 10px',
+                borderRadius: 6,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--ds-info-border, #4a7fcb)',
+                fontSize: 13,
+              }}
+            >
+              {accLoginStatus}
+            </div>
+          )}
+          {accLoginErr && (
+            <div
+              data-testid="acc-login-err"
+              role="alert"
+              style={{
+                padding: '8px 10px',
+                borderRadius: 6,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--ds-error-border, #c0392b)',
+                fontSize: 13,
+                color: 'var(--ds-error, #c0392b)',
+              }}
+            >
+              {accLoginErr}
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {sortedPosts.length > 0 && (
         <Card>

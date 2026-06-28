@@ -229,6 +229,9 @@ func (s *RepostCampaignService) spinCaption(ctx context.Context, original, style
 	if style == "" || style == "original" || style == "none" || style == "keep" {
 		return original, nil
 	}
+	if s.openai == nil {
+		return "", fmt.Errorf("caption spinning requires OPENAI_API_KEY but none is configured")
+	}
 	prompt := fmt.Sprintf(`Bạn là chuyên gia viết caption Facebook tiếng Việt. Viết lại nội dung gốc theo phong cách yêu cầu.
 
 Phong cách: %s

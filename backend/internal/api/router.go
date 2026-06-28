@@ -21,6 +21,8 @@ import (
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/repo"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/service"
+
+	kitaccounts "github.com/millions-dollar-project/mdp-kit/go/kit-accounts"
 )
 
 // apiPrefix is the versioned base path for all module-specific routes.
@@ -104,9 +106,17 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	if d.SidecarURL != "" {
 		sidecarClient = service.NewSidecarClient(d.SidecarURL)
 	}
+	// Repost service only requires the sidecar (crawl + run + schedule).
+	// OpenAI is only used for caption spinning in CreateCampaign — pass
+	// nil when the key is missing so crawl/run still work without an
+	// OpenAI key. CreateCampaign will return a clear 503/500 if the user
+	// tries to spin without a key.
 	var repostSvc *service.RepostCampaignService
-	if sidecarClient != nil && d.OpenAIKey != "" {
-		aiClient := ai.NewClient(ai.Config{APIKey: d.OpenAIKey})
+	if sidecarClient != nil {
+		var aiClient *ai.Client
+		if d.OpenAIKey != "" {
+			aiClient = ai.NewClient(ai.Config{APIKey: d.OpenAIKey})
+		}
 		repostSvc = service.NewRepostCampaignService(repostCampaignRepo, repostJobRepo, fbAccountRepo, fbGroupRepo, crawledPostRepo, sidecarClient, aiClient)
 	}
 	repostH := handlers.NewRepostHandler(repostCampaignRepo, repostJobRepo, fbAccountRepo, fbGroupRepo, crawledPostRepo, repostSvc, sidecarClient)
@@ -171,6 +181,20 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	videoH := handlers.NewVideo(videoSvc)
 
 	// Resource groups
+	// Kit-accounts (Phase 2): shared handler from mdp-kit/go/kit-accounts
+	// replaces the SQL-backed /fb-accounts* routes. The OnDeleteCascade
+	// hook runs BEFORE the account folder is removed so we never leave
+	// dangling FK references. Phase 3 will swap the UUID column for
+	// TEXT `assigned_account_name`.
+	kitHandler := kitaccounts.NewHandler(kitaccounts.HandlerDeps{
+		SidecarURL: d.SidecarURL,
+		Platform:   kitaccounts.PlatformFacebook,
+		OnDeleteCascade: func(ctx context.Context, name string) error {
+			_, err := d.Pool.Exec(ctx,
+				`UPDATE facebook.fb_groups SET assigned_account_id = NULL WHERE assigned_account_id::text = $1`, name)
+			return err
+		},
+	})
 	v1 := r.Group(apiPrefix)
 	{
 		pagesH := handlers.NewPages(pagesSvc)
@@ -270,16 +294,23 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		v1.POST("/crawl", repostH.CrawlPage)
 		v1.GET("/crawled-posts", repostH.ListCrawledPosts)
 
-		// FB accounts / groups
-		v1.GET("/fb-accounts", repostH.ListAccounts)
-		v1.POST("/fb-accounts", repostH.CreateAccount)
-		v1.POST("/delete-fb-account", repostH.DeleteAccount)
-		v1.POST("/fb-accounts/:id/login", repostH.LoginAccount)
-		v1.GET("/fb-accounts/login-status", repostH.AccountLoginStatus)
+		// FB accounts / groups — Phase 2: /fb-accounts* retired in favor of
+		// /kit-accounts (mounted below). Old endpoints return 410 Gone
+		// with a Link header pointing at the successor URL.
+		v1.GET("/fb-accounts", handlers.Gone("fb-accounts has been retired — use /api/v1/facebook/kit-accounts"))
+		v1.POST("/fb-accounts", handlers.Gone("fb-accounts has been retired — use POST /api/v1/facebook/kit-accounts/login/start"))
+		v1.POST("/delete-fb-account", handlers.Gone("delete-fb-account has been retired — use DELETE /api/v1/facebook/kit-accounts/:name"))
+		v1.POST("/fb-accounts/:id/login", handlers.Gone("fb-accounts/:id/login has been retired — use POST /api/v1/facebook/kit-accounts/login/start"))
+		v1.GET("/fb-accounts/login-status", handlers.Gone("fb-accounts/login-status has been retired — use GET /api/v1/facebook/kit-accounts/login/status"))
 		v1.GET("/fb-groups", repostH.ListGroups)
 		v1.POST("/fb-groups", repostH.CreateGroup)
 		v1.POST("/fb-groups/from-url", repostH.CreateGroupFromURL)
 		v1.POST("/delete-fb-group", repostH.DeleteGroup)
+
+		// Kit-accounts (Phase 2): shared handler mounted at /kit-accounts.
+		// Provides List/Get/Delete/TouchLastUsed + proxy endpoints to the
+		// Node sidecar (login start/persist/cancel/status, crawl).
+		kitHandler.Mount("", v1)
 
 		// Kling AI
 		if klingH != nil {

@@ -1,6 +1,43 @@
+import { useEffect, useState, useCallback } from 'react';
 import { fbFetch } from '../lib/api';
 import { useFacebookApi } from './useFacebookApi';
 import type { RepostCampaign, RepostJob, FBAccount, FBGroup, CrawledPostReal } from '../lib/types';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2: kit-accounts is the source of truth for FB accounts (replaces the
+// old SQL `facebook.fb_accounts` table). The plugin routes everything through
+// the shared handler mounted at /api/v1/facebook/kit-accounts (mdp-kit/go/
+// kit-accounts). All FB-specific fields below are mapped from the kit Summary
+// envelope so the UI keeps working without changes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Raw shape returned by GET /kit-accounts → { accounts: [...] } */
+interface KitAccountSummaryRaw {
+  name: string;
+  platform?: string;
+  status?: string;
+  healthStatus?: string;
+  lastUsedAt?: string;
+  // Backwards-compat: legacy rows may carry a pre-existing UUID `id`.
+  id?: string;
+  profilePath?: string;
+  createdAt?: string;
+}
+
+/** Normalize a kit Summary into the FBAccount shape the UI expects. */
+const toFBAccount = (raw: KitAccountSummaryRaw): FBAccount => ({
+  // Use kit's `name` as the identity field. Legacy code used `id` as the
+  // primary key; here we set `id = name` so consumers that read `account.id`
+  // (e.g. dropdowns) keep working without a rewrite.
+  id: raw.id ?? raw.name,
+  name: raw.name,
+  profilePath: raw.profilePath ?? `~/.mdp/facebook/profiles/${raw.name}`,
+  status: raw.status ?? 'active',
+  lastUsedAt: raw.lastUsedAt ?? undefined,
+  createdAt: raw.createdAt ?? '',
+});
+
+// ─── Read hooks ─────────────────────────────────────────────────────────────
 
 export const useRepostCampaigns = () =>
   useFacebookApi<RepostCampaign[]>('repost-campaigns', []);
@@ -11,8 +48,53 @@ export const useRepostJobs = (campaignId: string | null) =>
     []
   );
 
-export const useFBAccounts = () =>
-  useFacebookApi<FBAccount[]>('fb-accounts', []);
+/**
+ * List FB accounts backed by kit-accounts. Returns the legacy `{ data }`
+ * envelope the rest of the plugin already consumes.
+ */
+export function useFBAccounts(): {
+  data: FBAccount[];
+  loading: boolean;
+  error: string | null;
+  reload: () => void;
+} {
+  const [data, setData] = useState<FBAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fbFetch<{ accounts?: KitAccountSummaryRaw[] } | KitAccountSummaryRaw[]>(
+      'kit-accounts',
+      { preferIpc: true }
+    )
+      .then((res) => {
+        if (cancelled) return;
+        // The kit handler returns { accounts: [...] }; tolerate a bare
+        // array too in case the route is reshaped later.
+        const list = Array.isArray(res) ? res : res?.accounts ?? [];
+        setData(list.map(toFBAccount));
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : String(e));
+        setData([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nonce]);
+
+  return { data, loading, error, reload };
+}
 
 export const useFBGroups = () =>
   useFacebookApi<FBGroup[]>('fb-groups', []);
@@ -22,6 +104,28 @@ export const useCrawledPostsReal = (pageId: string | null) =>
     pageId ? `crawled-posts?pageId=${encodeURIComponent(pageId)}` : null,
     []
   );
+
+// ─── Mutating helpers (delegated to kit-accounts sidecar flow) ──────────────
+
+export interface CreateAccountPayload {
+  name: string;
+  /** Display profile path; kit-accounts derives a default when omitted. */
+  profilePath?: string;
+  email?: string;
+  /** Forwarded to the sidecar — never persisted. */
+  password?: string;
+  /** JSON cookie array — paste from extension to skip login. */
+  cookiesJson?: string;
+  /** Optional platform override (defaults to "facebook"). */
+  platform?: string;
+}
+
+interface KitLoginStartResponse {
+  sessionId?: string;
+  loginStatus?: string;
+  loginErr?: string;
+  account?: { name: string };
+}
 
 export async function createCampaign(payload: {
   name: string;
@@ -43,51 +147,83 @@ export async function runCampaign(id: string): Promise<{ success: boolean }> {
   });
 }
 
-export async function createAccount(payload: {
-  name: string;
-  profilePath: string;
-  email?: string;
-  /** Optional. When provided the sidecar fills the password field
-   *  and submits the Facebook login form. The password is forwarded
-   *  to the sidecar over the local network and never persisted. */
-  password?: string;
-}): Promise<{ account?: FBAccount; sessionId?: string; loginStatus?: string; loginErr?: string }> {
-  return fbFetch('fb-accounts', {
-    method: 'POST',
-    body: payload,
-  });
+/**
+ * Phase 2: route through kit-accounts sidecar login/start. The kit handler
+ * at /kit-accounts/login/start forwards verbatim to the Node sidecar's
+ * /account-login/start (mounted on :9001 by default) and returns the
+ * Playwright sessionId for polling.
+ */
+export async function createAccount(payload: CreateAccountPayload): Promise<{
+  account?: FBAccount;
+  sessionId?: string;
+  loginStatus?: string;
+  loginErr?: string;
+}> {
+  const body = {
+    profilePath: payload.profilePath ?? `~/.mdp/facebook/profiles/${payload.name}`,
+    email: payload.email,
+    password: payload.password,
+    cookiesJson: payload.cookiesJson,
+  };
+  const res = await fbFetch<KitLoginStartResponse>(
+    `kit-accounts/login/start?name=${encodeURIComponent(payload.name)}`,
+    { method: 'POST', body }
+  );
+  return {
+    account: res.account
+      ? {
+          id: res.account.name,
+          name: res.account.name,
+          profilePath: body.profilePath,
+          status: 'pending',
+        }
+      : undefined,
+    sessionId: res.sessionId,
+    loginStatus: res.loginStatus,
+    loginErr: res.loginErr,
+  };
 }
 
+/** Poll the sidecar login session; mirrors the legacy `login-status` shape. */
 export async function pollAccountLoginStatus(sessionId: string): Promise<{
   status: string;
   lastError?: string;
 }> {
-  return fbFetch(`fb-accounts/login-status?sessionId=${encodeURIComponent(sessionId)}`);
+  return fbFetch<{ status: string; lastError?: string }>(
+    `kit-accounts/login/status?sessionId=${encodeURIComponent(sessionId)}`
+  );
 }
 
+/**
+ * Relaunch a fresh login session for an existing account (used after
+ * `appstate.json` expiry). Hits the kit-accounts sidecar start endpoint
+ * again — the kit handler will overwrite or create the sessionId.
+ */
 export async function relaunchAccountLogin(
   accountId: string,
   payload: { email?: string } = {}
 ): Promise<{ sessionId?: string; loginStatus?: string }> {
-  return fbFetch(`fb-accounts/${accountId}/login`, {
-    method: 'POST',
-    body: payload,
-  });
+  return fbFetch<{ sessionId?: string; loginStatus?: string }>(
+    `kit-accounts/login/start?name=${encodeURIComponent(accountId)}`,
+    { method: 'POST', body: payload }
+  );
 }
 
 /**
- * Delete a FB account row from the database.
- *
- * NOTE: this does NOT touch the Playwright profile directory on disk
- * (e.g. ~/.mdp/facebook/profiles/account-<ts>). The user has to
- * remove that themselves if they want to reclaim disk space — the
- * directory may contain session cookies they want to keep.
+ * Delete a FB account via kit-accounts. The handler triggers
+ * OnDeleteCascade (clears `fb_groups.assigned_account_id` in SQL) before
+ * removing the on-disk folder, so the UI's confirm dialog can safely
+ * delete + close without manual cleanup.
  */
-export async function deleteFBAccount(id: string): Promise<{ success: boolean; id: string }> {
-  return fbFetch<{ success: boolean; id: string }>('delete-fb-account', {
-    method: 'POST',
-    body: { id },
-  });
+export async function deleteFBAccount(id: string): Promise<{
+  success: boolean;
+  id: string;
+}> {
+  await fbFetch<{ name: string; deleted: boolean }>(
+    `kit-accounts/${encodeURIComponent(id)}`,
+    { method: 'DELETE' }
+  );
+  return { success: true, id };
 }
 
 /**
@@ -127,9 +263,9 @@ export async function createGroup(payload: {
 /**
  * Paste-a-link flow. The user types a Facebook group URL (any shape
  * — www/m/bare/with-permalink) and the backend parses it, extracts
- * the numeric group ID and (best-effort) display name, and creates
- * the row in one round-trip. The user can override the auto-detected
- * name by passing `name` explicitly.
+ * the numeric group ID and (best-effort) display name, and creates the
+ * row in one round-trip. The user can override the auto-detected name
+ * by passing `name` explicitly.
  */
 export async function createGroupFromUrl(payload: {
   url: string;
@@ -172,5 +308,16 @@ export async function generateKlingVideos(payload: {
   return fbFetch<{ paths: string[] }>('kling/videos', {
     method: 'POST',
     body: payload,
+  });
+}
+
+/**
+ * Re-export the kit-accounts admin helpers so plugin code can manage
+ * accounts without round-tripping through the useFBAccounts hook (used
+ * for the touch-last-used call after a successful crawl, etc.).
+ */
+export async function touchFBAccount(name: string): Promise<void> {
+  await fbFetch(`kit-accounts/${encodeURIComponent(name)}/last-used`, {
+    method: 'PATCH',
   });
 }

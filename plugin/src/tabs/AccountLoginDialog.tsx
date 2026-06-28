@@ -15,8 +15,12 @@ import { useAccountLogin } from '../hooks';
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** Existing profile path the account was registered with. */
-  profilePath: string;
+  /**
+   * Existing profile path the account was registered with. Optional —
+   * the dialog derives a default (`~/.mdp/facebook/profiles/<name>`)
+   * from `accountName` when missing.
+   */
+  profilePath?: string;
   /** Optional — pre-fill the email field in the visible browser. */
   email?: string;
   /** Optional — display name of the account in the dialog header. */
@@ -35,15 +39,22 @@ const STATUS_LABEL: Record<string, string> = {
 export const AccountLoginDialog: React.FC<Props> = ({ open, onClose, profilePath, email, accountName, onSuccess }) => {
   const { session, starting, error, start, cancel, reset } = useAccountLogin();
 
+  // Derive a default profile path when the caller didn't supply one. The
+  // sidecar expects a writable directory; the convention is
+  // `~/.mdp/<platform>/profiles/<name>`.
+  const effectiveProfilePath =
+    profilePath ??
+    (accountName ? `~/.mdp/facebook/profiles/${accountName}` : '');
+
   // Auto-start when the dialog opens.
   React.useEffect(() => {
     if (open && !session && !starting) {
-      void start(profilePath, email);
+      void start(effectiveProfilePath, email);
     }
     if (!open && session) {
       reset();
     }
-  }, [open, session, starting, profilePath, email, start, reset]);
+  }, [open, session, starting, effectiveProfilePath, email, start, reset]);
 
   React.useEffect(() => {
     if (session?.status === 'completed') {
@@ -63,7 +74,7 @@ export const AccountLoginDialog: React.FC<Props> = ({ open, onClose, profilePath
         )}
         {error && <div className="fb-error">{error}</div>}
         <FormField label="Profile path" hint="Trình duyệt sẽ dùng profile này để lưu cookie đăng nhập">
-          <Input value={profilePath} readOnly />
+          <Input value={effectiveProfilePath} readOnly />
         </FormField>
         {email && (
           <FormField label="Email (đã điền sẵn vào form Facebook)">

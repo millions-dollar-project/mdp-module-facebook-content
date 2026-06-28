@@ -347,11 +347,16 @@ export interface FBAccount {
   id: string;
   name: string;
   email?: string;
-  profilePath: string;
+  /**
+   * Display profile path. Server-side `kit-accounts` derives a default
+   * (`~/.mdp/facebook/profiles/<name>`) when omitted, so this is
+   * informational for the UI rather than a hard contract.
+   */
+  profilePath?: string;
   cookiesJson?: string;
   status: string;
   lastUsedAt?: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 export interface FBGroup {

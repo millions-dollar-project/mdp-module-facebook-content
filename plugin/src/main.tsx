@@ -22,9 +22,33 @@ function registerPlugin(): boolean {
       shell.register({
         id: 'facebook-content',
         mount(container: HTMLElement) {
-          const root = createRoot(container);
-          root.render(React.createElement(App));
-          (container as RootEl)._root = root;
+          console.log('[facebook-content] mount() called');
+          // Install error interceptor BEFORE render so first-render
+          // exceptions land in the document title instead of producing
+          // a silent blank canvas.
+          const origError = console.error;
+          if (!(console as any).__fbContentErrorWrapped) {
+            console.error = (...args: unknown[]) => {
+              try {
+                const txt = args
+                  .map((a) => (typeof a === 'string' ? a : a instanceof Error ? a.message : JSON.stringify(a)))
+                  .join(' ');
+                document.title = '[FB Content ERROR] ' + txt.slice(0, 120);
+              } catch {
+                /* ignore */
+              }
+              origError.apply(console, args);
+            };
+            (console as any).__fbContentErrorWrapped = true;
+          }
+          try {
+            const root = createRoot(container);
+            root.render(React.createElement(App));
+            (container as RootEl)._root = root;
+            console.log('[facebook-content] mounted');
+          } catch (e) {
+            console.error('[facebook-content] render failed:', e);
+          }
         },
         unmount(container?: HTMLElement) {
           (container as RootEl | undefined)?._root?.unmount();

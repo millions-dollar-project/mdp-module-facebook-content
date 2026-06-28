@@ -104,3 +104,7 @@ require (
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+require github.com/millions-dollar-project/mdp-kit/go v0.0.0
+
+replace github.com/millions-dollar-project/mdp-kit/go => ../../mdp-kit/go

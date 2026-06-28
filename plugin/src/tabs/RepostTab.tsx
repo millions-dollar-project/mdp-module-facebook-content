@@ -59,7 +59,7 @@ const statusBadge = (status: string) => {
   return <Badge tone={s.tone}>{s.label}</Badge>;
 };
 
-const fmtDate = (v?: string) => (v ? new Date(v).toLocaleString('vi-VN') : '—');
+const fmtDate = (v?: string | null) => (v ? new Date(v).toLocaleString('vi-VN') : '—');
 
 export const RepostTab: React.FC<{ defaultMode?: Mode; hideSubTabs?: boolean }> = ({
   defaultMode = 'crawl',
