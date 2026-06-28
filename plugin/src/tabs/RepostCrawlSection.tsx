@@ -150,6 +150,9 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
     }
   }, [fbAccounts, selectedSourceId]);
   const [accModalOpen, setAccModalOpen] = React.useState(false);
+  // 2-step "Thêm tài khoản" UX: chỉ cần đặt tên, hệ thống tự mở browser
+  // FB login. Email/password/cookies JSON vẫn optional — bấm "Nâng cao"
+  // để bung ra. Tên mặc định acc-NNN+1 lấy từ tài khoản hiện có.
   const [accForm, setAccForm] = React.useState({
     name: '',
     profilePath: '',
@@ -157,11 +160,36 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
     password: '',
     cookiesJson: '',
   });
+  const [accShowAdvanced, setAccShowAdvanced] = React.useState(false);
   const [accSubmitting, setAccSubmitting] = React.useState(false);
   const [accLoginStatus, setAccLoginStatus] = React.useState<string>('');
   const [accLoginErr, setAccLoginErr] = React.useState<string>('');
 
-  // Auto-fill profile path slug từ name lần đầu name được set.
+  // Tên mặc định cho account mới: acc-NNN+1 với N = max trong tên acc-NNN hiện có.
+  const defaultAccName = React.useMemo(() => {
+    let max = 0;
+    for (const a of fbAccounts ?? []) {
+      const m = /^acc-(\d+)$/.exec(a.name ?? '');
+      if (m) {
+        const v = parseInt(m[1], 10);
+        if (Number.isFinite(v) && v > max) max = v;
+      }
+    }
+    return `acc-${(max + 1).toString().padStart(3, '0')}`;
+  }, [fbAccounts]);
+
+  // Auto-fill name + slug khi mở modal lần đầu.
+  React.useEffect(() => {
+    if (accModalOpen && !accForm.name) {
+      setAccForm((s) => ({
+        ...s,
+        name: defaultAccName,
+        profilePath: s.profilePath || `~/.mdp/facebook/profiles/${defaultAccName}`,
+      }));
+    }
+  }, [accModalOpen, defaultAccName, accForm.name]);
+
+  // Auto-fill profile path slug từ name lần đầu name được set (nếu user chưa sửa).
   React.useEffect(() => {
     if (!accForm.profilePath && accForm.name) {
       const slug = accForm.name
@@ -248,6 +276,8 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
     setAccModalOpen(false);
     setAccLoginErr('');
     setAccLoginStatus('');
+    setAccForm({ name: '', profilePath: '', email: '', password: '', cookiesJson: '' });
+    setAccShowAdvanced(false);
   };
 
   /**
@@ -830,9 +860,9 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
             </Button>
             <Button
               onClick={handleAddAccount}
-              disabled={accSubmitting || !accForm.name || !accForm.email || !accForm.password}
+              disabled={accSubmitting || !accForm.name}
             >
-              {accSubmitting ? 'Đang đăng nhập…' : 'Thêm + đăng nhập'}
+              {accSubmitting ? 'Đang mở trình duyệt…' : 'Thêm + mở trình duyệt đăng nhập'}
             </Button>
           </>
         }
@@ -843,6 +873,10 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
               value={accForm.name}
               onChange={(e) => setAccForm((s) => ({ ...s, name: e.target.value }))}
               placeholder="vd: Nguyễn Văn A"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !accSubmitting) void handleAddAccount();
+              }}
             />
           </FormField>
           <FormField label="Profile path" hint="Tự sinh từ tên — sửa nếu muốn">
@@ -852,39 +886,58 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
               placeholder="~/.mdp/facebook/profiles/<tên-slug>"
             />
           </FormField>
-          <FormField label="Email / SĐT đăng nhập" required>
-            <Input
-              type="email"
-              value={accForm.email}
-              onChange={(e) => setAccForm((s) => ({ ...s, email: e.target.value }))}
-              placeholder="email hoặc số điện thoại"
-            />
-          </FormField>
-          <FormField
-            label="Mật khẩu"
-            required
-            hint="Chỉ dùng để đăng nhập 1 lần — không lưu lại"
-          >
-            <Input
-              type="password"
-              value={accForm.password}
-              onChange={(e) => setAccForm((s) => ({ ...s, password: e.target.value }))}
-              placeholder="Mật khẩu Facebook"
-            />
-          </FormField>
-          <FormField label="Cookies JSON (tuỳ chọn)" hint="Dán từ extension để bỏ qua đăng nhập">
-            <Textarea
-              value={accForm.cookiesJson}
-              onChange={(e) => setAccForm((s) => ({ ...s, cookiesJson: e.target.value }))}
-              rows={3}
-              placeholder='[{"name": "c_user", "value": "...", "domain": ".facebook.com"}, ...]'
-            />
-          </FormField>
           <p className="fb-muted" style={{ fontSize: 12, margin: 0 }}>
-            Khi bấm "Thêm + đăng nhập" hệ thống sẽ tự mở trình duyệt ở chế độ
-            hiện, điền email + mật khẩu rồi chờ bạn xác minh 2FA / checkpoint
-            nếu Facebook yêu cầu.
+            Bấm <strong>Thêm + mở trình duyệt đăng nhập</strong> để hệ thống tự
+            mở Chrome ở chế độ hiện, điền email + mật khẩu rồi chờ bạn xác
+            minh 2FA / checkpoint nếu Facebook yêu cầu.
           </p>
+          <button
+            type="button"
+            onClick={() => setAccShowAdvanced((v) => !v)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
+              color: 'var(--ds-info, #4a7fcb)',
+              cursor: 'pointer',
+              fontSize: 12,
+              alignSelf: 'flex-start',
+            }}
+            data-testid="acc-advanced-toggle"
+          >
+            {accShowAdvanced ? '▾ Ẩn tùy chọn nâng cao' : '▸ Tùy chọn nâng cao (email + mật khẩu / cookies)'}
+          </button>
+          {accShowAdvanced && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <FormField label="Email / SĐT đăng nhập">
+                <Input
+                  type="email"
+                  value={accForm.email}
+                  onChange={(e) => setAccForm((s) => ({ ...s, email: e.target.value }))}
+                  placeholder="email hoặc số điện thoại"
+                />
+              </FormField>
+              <FormField
+                label="Mật khẩu"
+                hint="Chỉ dùng để đăng nhập 1 lần — không lưu lại"
+              >
+                <Input
+                  type="password"
+                  value={accForm.password}
+                  onChange={(e) => setAccForm((s) => ({ ...s, password: e.target.value }))}
+                  placeholder="Mật khẩu Facebook"
+                />
+              </FormField>
+              <FormField label="Cookies JSON" hint="Dán từ extension để bỏ qua đăng nhập">
+                <Textarea
+                  value={accForm.cookiesJson}
+                  onChange={(e) => setAccForm((s) => ({ ...s, cookiesJson: e.target.value }))}
+                  rows={3}
+                  placeholder='[{"name": "c_user", "value": "...", "domain": ".facebook.com"}, ...]'
+                />
+              </FormField>
+            </div>
+          )}
           {accLoginStatus && (
             <div
               data-testid="acc-login-status"
