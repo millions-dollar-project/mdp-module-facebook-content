@@ -136,12 +136,14 @@ async function _runLoginFlow(sessionId, session, opts) {
     }
     throw new Error("Login timeout — please complete the login in the browser before the timer expires.");
   } finally {
-    // Don't close the browser on success — the user may want to verify
-    // they're logged in. The next startLogin for the same profile will
-    // reuse the same persistent context. We still keep a reference so
-    // cancelSession can close it.
-    if (session.status !== "completed") {
+    // Close the visible browser once we have a definitive outcome.
+    // On success the user has already seen the home feed load; leaving
+    // the browser open blocks the next account login (same persistent
+    // context) and clutters the user's screen. On failure the
+    // error overlay was enough feedback.
+    if (session.status === "completed" || session.status === "failed" || session.status === "expired") {
       try { await browser?.close(); } catch { /* ignore */ }
+      session._browser = undefined;
     }
   }
 }

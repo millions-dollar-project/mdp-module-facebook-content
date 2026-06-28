@@ -249,6 +249,10 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
       reloadAccounts();
       if (out.sessionId) {
         await pollAndClose(out.sessionId, () => {
+          // Re-fetch the account list once login completes so the
+          // dropdown shows the freshly-persisted appState (healthStatus,
+          // lastUsedAt) — not the "pending" stub from create-time.
+          reloadAccounts();
           setAccModalOpen(false);
           setAccForm({ name: '', profilePath: '', email: '', password: '', cookiesJson: '' });
           toast.success(`Đã tạo và đăng nhập "${accForm.name}"`);
