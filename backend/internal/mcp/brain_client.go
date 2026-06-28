@@ -84,11 +84,12 @@ type BrainClient struct {
 	timeout  time.Duration
 	extraEnv map[string]string
 
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	nextID atomic.Int64
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	stdin       io.WriteCloser
+	stdout      *bufio.Reader
+	nextID      atomic.Int64
+	initialized bool
 }
 
 func NewBrainClient(binaryPath string, timeout time.Duration) *BrainClient {
@@ -195,6 +196,95 @@ func (c *BrainClient) ensure(ctx context.Context) error {
 	c.cmd = cmd
 	c.stdin = stdin
 	c.stdout = bufio.NewReader(stdout)
+
+	// MCP handshake: server rejects `tools/call` with "invalid during
+	// session initialization" until we send `initialize` and read the
+	// server's response. Protocol revision matches go-sdk/mcp used by
+	// mdp-brain (2025-03-26). `notifications/initialized` is a
+	// notification (no id, no response expected) — we send it but don't
+	// wait for a reply.
+	if err := c.handshake(); err != nil {
+		c.kill()
+		return err
+	}
+	return nil
+}
+
+// handshake sends the JSON-RPC `initialize` request and waits for the
+// matching response, then emits the `notifications/initialized`
+// notification. After this returns successfully, the server accepts
+// `tools/call` requests. Must be called with c.mu held.
+func (c *BrainClient) handshake() error {
+	id := c.nextID.Add(1)
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-03-26",
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]any{
+				"name":    "mdp-fb-content",
+				"version": "v0.1.0",
+			},
+		},
+	}
+	if err := json.NewEncoder(c.stdin).Encode(req); err != nil {
+		return fmt.Errorf("%w: initialize encode: %v", ErrBrainClient, err)
+	}
+	type result struct {
+		raw map[string]any
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var resp map[string]any
+		err := json.NewDecoder(c.stdout).Decode(&resp)
+		if err != nil {
+			done <- result{err: fmt.Errorf("%w: initialize decode: %v", ErrBrainClient, err)}
+			return
+		}
+		done <- result{raw: resp}
+	}()
+	timer := time.NewTimer(c.timeout)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return fmt.Errorf("%w: initialize timeout after %s", ErrBrainClient, c.timeout)
+	case r := <-done:
+		if r.err != nil {
+			return r.err
+		}
+		if errObj, ok := r.raw["error"]; ok {
+			return fmt.Errorf("%w: initialize failed: %v", ErrBrainClient, errObj)
+		}
+		// Validate server replied to OUR id (not someone else's).
+		// JSON numbers decode as float64; normalize before comparing.
+		var gotID int64
+		switch v := r.raw["id"].(type) {
+		case float64:
+			gotID = int64(v)
+		case int64:
+			gotID = v
+		case int:
+			gotID = int64(v)
+		default:
+			return fmt.Errorf("%w: initialize id missing or wrong type: %T", ErrBrainClient, r.raw["id"])
+		}
+		if gotID != id {
+			return fmt.Errorf("%w: initialize id mismatch: got %d want %d", ErrBrainClient, gotID, id)
+		}
+	}
+	// `notifications/initialized` is a notification — no id, no response.
+	// Send-and-forget so we don't block on a reply that won't come.
+	notif := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+	}
+	if err := json.NewEncoder(c.stdin).Encode(notif); err != nil {
+		return fmt.Errorf("%w: notifications/initialized encode: %v", ErrBrainClient, err)
+	}
+	c.initialized = true
 	return nil
 }
 
@@ -214,7 +304,7 @@ func (c *BrainClient) Close() error {
 }
 
 // IngestContent calls the ingest_content tool on mdp-brain. Returns the
-// brain memory ID assigned to the content.
+// brain ingestion ID assigned to the content.
 func (c *BrainClient) IngestContent(ctx context.Context, content string) (string, error) {
 	res, err := c.call(ctx, "tools/call", map[string]any{
 		"name":      "ingest_content",
@@ -223,11 +313,31 @@ func (c *BrainClient) IngestContent(ctx context.Context, content string) (string
 	if err != nil {
 		return "", err
 	}
-	id, _ := res["content_id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("%w: missing content_id", ErrBrainClient)
+	// MCP tools return { content: [{type:"text", text:"<json string>"}],
+	//                    structuredContent: {<parsed object>} }.
+	// Prefer structuredContent.ingestion_id, fall back to parsing
+	// content[0].text as JSON, then to a top-level content_id for back-compat.
+	if sc, ok := res["structuredContent"].(map[string]any); ok {
+		if id, _ := sc["ingestion_id"].(string); id != "" {
+			return id, nil
+		}
 	}
-	return id, nil
+	if contentArr, ok := res["content"].([]any); ok && len(contentArr) > 0 {
+		if first, ok := contentArr[0].(map[string]any); ok {
+			if txt, ok := first["text"].(string); ok && txt != "" {
+				var parsed map[string]any
+				if err := json.Unmarshal([]byte(txt), &parsed); err == nil {
+					if id, _ := parsed["ingestion_id"].(string); id != "" {
+						return id, nil
+					}
+				}
+			}
+		}
+	}
+	if id, _ := res["content_id"].(string); id != "" {
+		return id, nil
+	}
+	return "", fmt.Errorf("%w: missing ingestion_id/content_id", ErrBrainClient)
 }
 
 // PrepareContentInput calls the prepare_content_input tool on mdp-brain.

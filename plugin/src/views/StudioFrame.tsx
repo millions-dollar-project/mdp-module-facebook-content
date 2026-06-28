@@ -66,7 +66,7 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
           { id: 'brain', label: 'Composer' },
           { id: 'kanban', label: 'Kanban' },
           { id: 'crawl', label: 'Crawl' },
-          { id: 'brain-feed', label: 'Brain Feed' },
+          { id: 'brain-feed', label: 'Brain' },
         ]}
       />
 
