@@ -327,6 +327,8 @@ func (c *BrainClient) IngestContent(ctx context.Context, p IngestParams) (string
 	// The mdp-brain tool expects flat scope fields (user_id), not a nested
 	// "scope" object. Sending {scope:{...}} fails with "unexpected
 	// additional properties [\"scope\"]".
+	// mdp-brain has been updated to accept metadata as an open `any`
+	// (object/array/null) so a Go map[string]any serialises through fine.
 	args := map[string]any{
 		"source":    p.Source,
 		"source_id": p.SourceID,

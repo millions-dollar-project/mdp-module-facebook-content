@@ -25,10 +25,10 @@ type fakeBrainClient struct {
 	prepareErr     error
 }
 
-func (f *fakeBrainClient) IngestContent(ctx context.Context, content string) (string, error) {
+func (f *fakeBrainClient) IngestContent(ctx context.Context, p mcp.IngestParams) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.ingests = append(f.ingests, content)
+	f.ingests = append(f.ingests, p.Content)
 	if f.ingestErr != nil {
 		return "", f.ingestErr
 	}
