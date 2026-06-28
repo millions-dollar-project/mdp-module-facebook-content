@@ -8,6 +8,8 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/ai"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/repo"
@@ -17,7 +19,7 @@ import (
 type RepostCampaignService struct {
 	campaignRepo repo.RepostCampaignRepo
 	jobRepo      repo.RepostJobRepo
-	accountRepo  repo.FBAccountRepo
+	kit          KitLoader
 	groupRepo    repo.FBGroupRepo
 	crawlRepo    repo.CrawledPostRepo
 	sidecar      *SidecarClient
@@ -28,7 +30,7 @@ type RepostCampaignService struct {
 func NewRepostCampaignService(
 	campaignRepo repo.RepostCampaignRepo,
 	jobRepo repo.RepostJobRepo,
-	accountRepo repo.FBAccountRepo,
+	kit KitLoader,
 	groupRepo repo.FBGroupRepo,
 	crawlRepo repo.CrawledPostRepo,
 	sidecar *SidecarClient,
@@ -37,7 +39,7 @@ func NewRepostCampaignService(
 	return &RepostCampaignService{
 		campaignRepo: campaignRepo,
 		jobRepo:      jobRepo,
-		accountRepo:  accountRepo,
+		kit:          kit,
 		groupRepo:    groupRepo,
 		crawlRepo:    crawlRepo,
 		sidecar:      sidecar,
@@ -68,7 +70,7 @@ func (s *RepostCampaignService) CreateCampaign(ctx context.Context, name, source
 	}
 
 	// Build jobs from active accounts and their assigned groups
-	accounts, err := s.accountRepo.List(ctx)
+	accounts, err := s.kit.LookupAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
 	}
@@ -82,13 +84,14 @@ func (s *RepostCampaignService) CreateCampaign(ctx context.Context, name, source
 		if acc.Status != "active" {
 			continue
 		}
+		accID := AccountUUIDFromName(acc.Name).String()
 		for _, g := range groups {
-			if g.AssignedAccountID != nil && *g.AssignedAccountID == acc.ID {
+			if g.AssignedAccountID != nil && *g.AssignedAccountID == accID {
 				inputs = append(inputs, models.RepostJob{
-					CampaignID: campaign.ID,
-					AccountID:  acc.ID,
-					GroupID:    g.GroupID,
-					Status:     models.JobPending,
+					CampaignID:  campaign.ID,
+					AccountID:   accID,
+					GroupID:     g.GroupID,
+					Status:      models.JobPending,
 					ScheduledAt: &scheduledAt,
 				})
 			}
@@ -170,7 +173,13 @@ func (s *RepostCampaignService) RunCampaign(ctx context.Context, campaignID stri
 	completed := 0
 	failed := 0
 	for _, job := range jobs {
-		acc, err := s.accountRepo.Get(ctx, job.AccountID)
+		accID, parseErr := uuid.Parse(job.AccountID)
+		if parseErr != nil {
+			_ = s.jobRepo.UpdateStatus(ctx, job.ID, models.JobFailed, job.Attempts+1, strPtr("malformed account_id uuid: "+parseErr.Error()), nil, &now, nil)
+			failed++
+			continue
+		}
+		acc, err := s.kit.LookupByUUID(ctx, accID)
 		if err != nil || acc.Status != "active" {
 			_ = s.jobRepo.UpdateStatus(ctx, job.ID, models.JobFailed, job.Attempts+1, strPtr("Account inactive"), nil, &now, nil)
 			failed++

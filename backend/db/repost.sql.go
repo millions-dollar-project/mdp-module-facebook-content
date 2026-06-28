@@ -11,40 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createAccount = `-- name: CreateAccount :one
-INSERT INTO facebook.fb_accounts (name, email, profile_path, cookies_json)
-VALUES ($1, $2, $3, $4)
-RETURNING id, name, email, profile_path, cookies_json, status, last_used_at, created_at
-`
-
-type CreateAccountParams struct {
-	Name        string  `json:"name"`
-	Email       *string `json:"email"`
-	ProfilePath string  `json:"profile_path"`
-	CookiesJson []byte  `json:"cookies_json"`
-}
-
-func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (FacebookFbAccount, error) {
-	row := q.db.QueryRow(ctx, createAccount,
-		arg.Name,
-		arg.Email,
-		arg.ProfilePath,
-		arg.CookiesJson,
-	)
-	var i FacebookFbAccount
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Email,
-		&i.ProfilePath,
-		&i.CookiesJson,
-		&i.Status,
-		&i.LastUsedAt,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const createCampaign = `-- name: CreateCampaign :one
 INSERT INTO facebook.repost_campaigns (name, source_post_url, source_post_text, source_post_media_urls, caption_style, scheduled_at)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -231,15 +197,6 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (FacebookR
 	return i, err
 }
 
-const deleteAccount = `-- name: DeleteAccount :exec
-DELETE FROM facebook.fb_accounts WHERE id = $1
-`
-
-func (q *Queries) DeleteAccount(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteAccount, id)
-	return err
-}
-
 const deleteCampaign = `-- name: DeleteCampaign :exec
 DELETE FROM facebook.repost_campaigns WHERE id = $1
 `
@@ -317,26 +274,6 @@ WHERE status = 'pending' AND scheduled_at IS NOT NULL AND scheduled_at < $1
 func (q *Queries) ExpireOverdueJobs(ctx context.Context, scheduledAt pgtype.Timestamptz) error {
 	_, err := q.db.Exec(ctx, expireOverdueJobs, scheduledAt)
 	return err
-}
-
-const getAccount = `-- name: GetAccount :one
-SELECT id, name, email, profile_path, cookies_json, status, last_used_at, created_at FROM facebook.fb_accounts WHERE id = $1
-`
-
-func (q *Queries) GetAccount(ctx context.Context, id pgtype.UUID) (FacebookFbAccount, error) {
-	row := q.db.QueryRow(ctx, getAccount, id)
-	var i FacebookFbAccount
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Email,
-		&i.ProfilePath,
-		&i.CookiesJson,
-		&i.Status,
-		&i.LastUsedAt,
-		&i.CreatedAt,
-	)
-	return i, err
 }
 
 const getCampaign = `-- name: GetCampaign :one
@@ -424,39 +361,6 @@ func (q *Queries) GetGroup(ctx context.Context, id pgtype.UUID) (FacebookFbGroup
 		&i.CreatedAt,
 	)
 	return i, err
-}
-
-const listAccounts = `-- name: ListAccounts :many
-SELECT id, name, email, profile_path, cookies_json, status, last_used_at, created_at FROM facebook.fb_accounts ORDER BY created_at DESC
-`
-
-func (q *Queries) ListAccounts(ctx context.Context) ([]FacebookFbAccount, error) {
-	rows, err := q.db.Query(ctx, listAccounts)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FacebookFbAccount{}
-	for rows.Next() {
-		var i FacebookFbAccount
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Email,
-			&i.ProfilePath,
-			&i.CookiesJson,
-			&i.Status,
-			&i.LastUsedAt,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listActiveGroups = `-- name: ListActiveGroups :many
@@ -833,21 +737,6 @@ type SetCrawledPostSelectedParams struct {
 
 func (q *Queries) SetCrawledPostSelected(ctx context.Context, arg SetCrawledPostSelectedParams) error {
 	_, err := q.db.Exec(ctx, setCrawledPostSelected, arg.ID, arg.IsSelected)
-	return err
-}
-
-const updateAccountStatus = `-- name: UpdateAccountStatus :exec
-UPDATE facebook.fb_accounts SET status = $2, last_used_at = $3 WHERE id = $1
-`
-
-type UpdateAccountStatusParams struct {
-	ID         pgtype.UUID        `json:"id"`
-	Status     string             `json:"status"`
-	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
-}
-
-func (q *Queries) UpdateAccountStatus(ctx context.Context, arg UpdateAccountStatusParams) error {
-	_, err := q.db.Exec(ctx, updateAccountStatus, arg.ID, arg.Status, arg.LastUsedAt)
 	return err
 }
 

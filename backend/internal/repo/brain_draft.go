@@ -58,9 +58,7 @@ type BrainDraftFilter struct {
 
 // Count returns the number of brain_drafts matching the filter.
 func (r *BrainDraftRepo) Count(ctx context.Context, f BrainDraftFilter) (int64, error) {
-	return r.q.CountBrainDrafts(ctx, db.CountBrainDraftsParams{
-		StatusFilter: stringOrEmpty(f.Status),
-	})
+	return r.q.CountBrainDrafts(ctx, stringOrEmpty(f.Status))
 }
 
 // CountDraftsByStatus returns draft counts grouped by status. Used by

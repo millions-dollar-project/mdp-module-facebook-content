@@ -88,18 +88,6 @@ type CrawledPost struct {
 	CreatedAt    time.Time  `json:"createdAt"`
 }
 
-// FBAccount is a Facebook user profile for Playwright group posting.
-type FBAccount struct {
-	ID           string     `json:"id"`
-	Name         string     `json:"name"`
-	Email        *string    `json:"email,omitempty"`
-	ProfilePath  string     `json:"profilePath"`
-	CookiesJSON  *string    `json:"cookiesJson,omitempty"`
-	Status       string     `json:"status"`
-	LastUsedAt   *time.Time `json:"lastUsedAt,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt"`
-}
-
 // FBGroup is a Facebook group assigned to an account.
 type FBGroup struct {
 	ID               string     `json:"id"`

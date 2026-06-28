@@ -100,7 +100,7 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	// Repost (crawl / spin / group post)
 	repostCampaignRepo := repo.NewRepostCampaignRepo(queries)
 	repostJobRepo := repo.NewRepostJobRepo(queries)
-	fbAccountRepo := repo.NewFBAccountRepo(queries)
+	kitLoader := service.NewKitLoader(kitaccounts.RootFor(kitaccounts.PlatformFacebook))
 	fbGroupRepo := repo.NewFBGroupRepo(queries)
 	crawledPostRepo := repo.NewCrawledPostRepo(queries)
 	var sidecarClient *service.SidecarClient
@@ -118,9 +118,9 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		if d.OpenAIKey != "" {
 			aiClient = ai.NewClient(ai.Config{APIKey: d.OpenAIKey})
 		}
-		repostSvc = service.NewRepostCampaignService(repostCampaignRepo, repostJobRepo, fbAccountRepo, fbGroupRepo, crawledPostRepo, sidecarClient, aiClient)
+		repostSvc = service.NewRepostCampaignService(repostCampaignRepo, repostJobRepo, kitLoader, fbGroupRepo, crawledPostRepo, sidecarClient, aiClient)
 	}
-	repostH := handlers.NewRepostHandler(repostCampaignRepo, repostJobRepo, fbAccountRepo, fbGroupRepo, crawledPostRepo, repostSvc, sidecarClient)
+	repostH := handlers.NewRepostHandler(repostCampaignRepo, repostJobRepo, kitLoader, fbGroupRepo, crawledPostRepo, repostSvc, sidecarClient)
 
 	// Kling AI
 	var klingH *handlers.KlingHandler
@@ -193,17 +193,20 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	videoH := handlers.NewVideo(videoSvc)
 
 	// Resource groups
-	// Kit-accounts (Phase 2): shared handler from mdp-kit/go/kit-accounts
-	// replaces the SQL-backed /fb-accounts* routes. The OnDeleteCascade
-	// hook runs BEFORE the account folder is removed so we never leave
-	// dangling FK references. Phase 3 will swap the UUID column for
-	// TEXT `assigned_account_name`.
+	// Kit-accounts (Phase 2 + Phase 6B): shared handler from
+	// mdp-kit/go/kit-accounts replaces the SQL-backed /fb-accounts*
+	// routes. The OnDeleteCascade hook runs BEFORE the account folder is
+	// removed so we never leave dangling FK references. Phase 6B: the
+	// UUID stored in facebook.fb_groups.assigned_account_id is the
+	// SHA1-v5 hash of the kit account name (see service.AccountUUIDFromName),
+	// so we recompute it from the incoming `name` before cascading.
 	kitHandler := kitaccounts.NewHandler(kitaccounts.HandlerDeps{
 		SidecarURL: d.SidecarURL,
 		Platform:   kitaccounts.PlatformFacebook,
 		OnDeleteCascade: func(ctx context.Context, name string) error {
+			uuidStr := service.AccountUUIDFromName(name).String()
 			_, err := d.Pool.Exec(ctx,
-				`UPDATE facebook.fb_groups SET assigned_account_id = NULL WHERE assigned_account_id::text = $1`, name)
+				`UPDATE facebook.fb_groups SET assigned_account_id = NULL WHERE assigned_account_id::text = $1`, uuidStr)
 			return err
 		},
 	})

@@ -200,17 +200,6 @@ type FacebookCrawledPost struct {
 	ReactionIcons []byte             `json:"reaction_icons"`
 }
 
-type FacebookFbAccount struct {
-	ID          pgtype.UUID        `json:"id"`
-	Name        string             `json:"name"`
-	Email       *string            `json:"email"`
-	ProfilePath string             `json:"profile_path"`
-	CookiesJson []byte             `json:"cookies_json"`
-	Status      string             `json:"status"`
-	LastUsedAt  pgtype.Timestamptz `json:"last_used_at"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-}
-
 type FacebookFbGroup struct {
 	ID                pgtype.UUID        `json:"id"`
 	GroupID           string             `json:"group_id"`

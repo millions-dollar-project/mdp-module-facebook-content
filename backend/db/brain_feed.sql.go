@@ -11,6 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countBrainDrafts = `-- name: CountBrainDrafts :one
+SELECT COUNT(*)::bigint
+FROM facebook.brain_drafts
+WHERE ($1::text = '' OR status = $1)
+`
+
+func (q *Queries) CountBrainDrafts(ctx context.Context, dollar_1 string) (int64, error) {
+	row := q.db.QueryRow(ctx, countBrainDrafts, dollar_1)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countBrainFeeds = `-- name: CountBrainFeeds :one
 SELECT COUNT(*)::bigint
 FROM facebook.brain_feeds
@@ -38,23 +51,6 @@ func (q *Queries) CountBrainFeeds(ctx context.Context, arg CountBrainFeedsParams
 		arg.StatusFilter,
 		arg.SearchQ,
 	)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const countBrainDrafts = `-- name: CountBrainDrafts :one
-SELECT COUNT(*)::bigint
-FROM facebook.brain_drafts
-WHERE ($1::text = '' OR status = $1)
-`
-
-type CountBrainDraftsParams struct {
-	StatusFilter string `json:"status_filter"`
-}
-
-func (q *Queries) CountBrainDrafts(ctx context.Context, arg CountBrainDraftsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countBrainDrafts, arg.StatusFilter)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

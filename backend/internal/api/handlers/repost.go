@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/repo"
@@ -20,7 +21,7 @@ import (
 type RepostHandler struct {
 	campaignRepo repo.RepostCampaignRepo
 	jobRepo      repo.RepostJobRepo
-	accountRepo  repo.FBAccountRepo
+	kit          service.KitLoader
 	groupRepo    repo.FBGroupRepo
 	crawledRepo  repo.CrawledPostRepo
 	svc          *service.RepostCampaignService
@@ -31,7 +32,7 @@ type RepostHandler struct {
 func NewRepostHandler(
 	campaignRepo repo.RepostCampaignRepo,
 	jobRepo repo.RepostJobRepo,
-	accountRepo repo.FBAccountRepo,
+	kit service.KitLoader,
 	groupRepo repo.FBGroupRepo,
 	crawledRepo repo.CrawledPostRepo,
 	svc *service.RepostCampaignService,
@@ -40,7 +41,7 @@ func NewRepostHandler(
 	return &RepostHandler{
 		campaignRepo: campaignRepo,
 		jobRepo:      jobRepo,
-		accountRepo:  accountRepo,
+		kit:          kit,
 		groupRepo:    groupRepo,
 		crawledRepo:  crawledRepo,
 		svc:          svc,
@@ -180,173 +181,25 @@ func (h *RepostHandler) ListCrawledPosts(c *gin.Context) {
 	c.JSON(http.StatusOK, posts)
 }
 
-// ─── Accounts ────────────────────────────────────────────────────────
+// ─── Accounts (Phase 6) ─────────────────────────────────────────────
+//
+// ListAccounts / CreateAccount / DeleteAccount / LoginAccount /
+// AccountLoginStatus used to live here, backed by the SQL fb_accounts
+// table. The table is gone (Phase 6) and the on-disk kit-accounts pool
+// at ~/mdp-data/accounts/ is now the single source of truth — see
+// handlers.NewRepostHandler's `kit` field and the kit-accounts handler
+// mounted by router.go at /api/v1/facebook/kit-accounts. Legacy
+// /fb-accounts* HTTP routes now return 410 Gone (see router.go).
 
-// ListAccounts godoc
-// @Summary List FB accounts
-// @Tags repost
-func (h *RepostHandler) ListAccounts(c *gin.Context) {
-	accounts, err := h.accountRepo.List(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, accounts)
-}
-
-// CreateAccountRequest is the body for POST /fb-accounts. The password
-// is OPTIONAL — if supplied the sidecar fills the login form and
-// submits so the user only has to clear 2FA / checkpoint. If empty the
-// browser opens at facebook.com/login with only the email pre-filled
-// and the user types the password themselves. Password is never
-// persisted on the server.
-type CreateAccountRequest struct {
-	models.FBAccount
-	Password *string `json:"password,omitempty"`
-}
-
-// CreateAccount godoc
-// @Summary Create a FB account and start its visible login browser
-// @Tags repost
-func (h *RepostHandler) CreateAccount(c *gin.Context) {
-	var req CreateAccountRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	acc, err := h.accountRepo.Create(c.Request.Context(), req.FBAccount)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	// Always start the visible login browser so the user can clear
-	// 2FA / checkpoint themselves. The password is OPTIONAL — if the
-	// plugin sent one, the sidecar fills the form and submits; if not,
-	// the user types the password in the browser. We never persist the
-	// password on the server — it just gets forwarded to the sidecar
-	// and then dropped.
-	if h.sidecar == nil {
-		c.JSON(http.StatusCreated, acc)
-		return
-	}
-	email := ""
-	if req.Email != nil {
-		email = *req.Email
-	}
-	password := ""
-	if req.Password != nil {
-		password = *req.Password
-	}
-	session, err := h.sidecar.StartAccountLogin(c.Request.Context(), req.ProfilePath, email, password)
-	if err != nil {
-		// Sidecar refused / failed to start the visible browser. Roll
-		// back the row we just inserted so the user doesn't see a
-		// phantom account. Best-effort: if the delete itself fails
-		// (e.g. DB dropped), we still return a clean error to the
-		// client; the orphan row will surface in a future audit.
-		if delErr := h.accountRepo.Delete(c.Request.Context(), acc.ID); delErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":           "sidecar unavailable and rollback failed: " + err.Error() + " (rollback: " + delErr.Error() + ")",
-				"orphanAccountID": acc.ID,
-			})
-			return
-		}
-		c.JSON(http.StatusBadGateway, gin.H{
-			"error": "sidecar unavailable: " + err.Error(),
-		})
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{
-		"account":     acc,
-		"sessionId":   session.SessionID,
-		"loginStatus": session.Status,
-	})
-}
-
-// DeleteAccountRequest is the body for POST /delete-fb-account.
-type DeleteAccountRequest struct {
-	ID string `json:"id" binding:"required"`
-}
-
-// DeleteAccount godoc
-// @Summary Delete a FB account row (does not remove the Playwright
-// @Description profile directory — that is the user's filesystem to manage).
-// @Tags repost
-func (h *RepostHandler) DeleteAccount(c *gin.Context) {
-	var req DeleteAccountRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if err := h.accountRepo.Delete(c.Request.Context(), req.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "id": req.ID})
-}
-
-// LoginAccountRequest is the body for POST /fb-accounts/:id/login.
-// The body is optional — the handler reads the existing account's
-// email from the row and asks the sidecar to re-open the visible
-// login browser for the same profile.
-type LoginAccountRequest struct {
-	Email *string `json:"email,omitempty"`
-}
-
-// LoginAccount godoc
-// @Summary Re-launch the visible login browser for an existing account
-// @Tags repost
-func (h *RepostHandler) LoginAccount(c *gin.Context) {
-	id := c.Param("id")
-	if h.sidecar == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "sidecar not configured"})
-		return
-	}
-	acc, err := h.accountRepo.Get(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-	var req LoginAccountRequest
-	_ = c.ShouldBindJSON(&req) // body is optional
-	email := ""
-	if req.Email != nil {
-		email = *req.Email
-	} else if acc.Email != nil {
-		email = *acc.Email
-	}
-	session, err := h.sidecar.StartAccountLogin(c.Request.Context(), acc.ProfilePath, email, "")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"account":     acc,
-		"sessionId":   session.SessionID,
-		"loginStatus": session.Status,
-	})
-}
-
-// AccountLoginStatus godoc
-// @Summary Poll the sidecar for a login session's status
-// @Tags repost
-func (h *RepostHandler) AccountLoginStatus(c *gin.Context) {
-	sessionID := c.Query("sessionId")
-	if sessionID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "sessionId required"})
-		return
-	}
-	if h.sidecar == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "sidecar not configured"})
-		return
-	}
-	session, err := h.sidecar.CheckAccountLoginStatus(c.Request.Context(), sessionID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, session)
-}
+// ─── Accounts (Phase 6) ─────────────────────────────────────────────
+//
+// ListAccounts / CreateAccount / DeleteAccount / LoginAccount /
+// AccountLoginStatus used to live here, backed by the SQL fb_accounts
+// table. The table is gone (Phase 6) and the on-disk kit-accounts pool
+// at ~/mdp-data/accounts/ is now the single source of truth — see
+// handlers.NewRepostHandler's `kit` field and the kit-accounts handler
+// mounted by router.go at /api/v1/facebook/kit-accounts. Legacy
+// /fb-accounts* HTTP routes now return 410 Gone (see router.go).
 
 // ─── Groups ──────────────────────────────────────────────────────────
 
@@ -496,19 +349,22 @@ func (h *RepostHandler) CrawlPageV2(c *gin.Context) {
 		return
 	}
 	// Resolve which Chrome profile to use. Order of preference:
-	//  1. accountId the client picked (UI lets the user choose)
-	//  2. first account in DB that is "active" (FB returned a successful
-	//     login status, or the plugin never set it inactive)
+	//  1. accountId the client picked (UI lets the user choose) — this
+	//     is the SHA1-v5 UUID derived from the kit account name; we
+	//     reverse-lookup via KitLoader
+	//  2. first kit account on disk that is "active"
 	//  3. empty string — sidecar falls back to its default profile
 	//     (fine for fully public pages, no cookies).
 	profilePath := ""
-	if h.accountRepo != nil {
+	if h.kit != nil {
 		if req.AccountID != "" {
-			if acc, err := h.accountRepo.Get(c.Request.Context(), req.AccountID); err == nil && acc.ProfilePath != "" {
-				profilePath = acc.ProfilePath
+			if accID, perr := uuid.Parse(req.AccountID); perr == nil {
+				if acc, err := h.kit.LookupByUUID(c.Request.Context(), accID); err == nil && acc.ProfilePath != "" {
+					profilePath = acc.ProfilePath
+				}
 			}
 		} else {
-			accts, err := h.accountRepo.List(c.Request.Context())
+			accts, err := h.kit.LookupAll(c.Request.Context())
 			if err == nil {
 				for _, a := range accts {
 					if a.Status == "active" || a.Status == "hoạt động" || a.Status == "" {

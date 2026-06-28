@@ -116,23 +116,6 @@ UPDATE facebook.crawled_posts SET is_selected = $2 WHERE id = $1;
 -- name: DeleteCrawledPostsForPage :exec
 DELETE FROM facebook.crawled_posts WHERE page_id = $1;
 
--- name: CreateAccount :one
-INSERT INTO facebook.fb_accounts (name, email, profile_path, cookies_json)
-VALUES ($1, $2, $3, $4)
-RETURNING *;
-
--- name: ListAccounts :many
-SELECT * FROM facebook.fb_accounts ORDER BY created_at DESC;
-
--- name: GetAccount :one
-SELECT * FROM facebook.fb_accounts WHERE id = $1;
-
--- name: UpdateAccountStatus :exec
-UPDATE facebook.fb_accounts SET status = $2, last_used_at = $3 WHERE id = $1;
-
--- name: DeleteAccount :exec
-DELETE FROM facebook.fb_accounts WHERE id = $1;
-
 -- name: CreateGroup :one
 INSERT INTO facebook.fb_groups (group_id, name, assigned_account_id, status)
 VALUES ($1, $2, $3, $4)
