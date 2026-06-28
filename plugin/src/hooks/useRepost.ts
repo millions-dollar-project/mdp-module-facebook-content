@@ -159,7 +159,11 @@ export async function createAccount(payload: CreateAccountPayload): Promise<{
   loginStatus?: string;
   loginErr?: string;
 }> {
+  // The kit handler proxies the request body verbatim to the sidecar;
+  // including `name` here is what lets the sidecar persist the kit
+  // artifacts under ~/mdp-data/accounts/<name>/ once the user signs in.
   const body = {
+    name: payload.name,
     profilePath: payload.profilePath ?? `~/.mdp/facebook/profiles/${payload.name}`,
     email: payload.email,
     password: payload.password,

@@ -26,6 +26,7 @@
  */
 const { chromium } = require("playwright");
 const crypto = require("crypto");
+const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
@@ -52,8 +53,18 @@ function newSessionId() {
  *
  * Resolves with { sessionId, status: "running" } so the HTTP handler can
  * return immediately; the actual login wait happens in the background.
+ *
+ * If `name` is supplied (kit-accounts account name), the sidecar will
+ * persist a fresh meta.json + appstate.json under
+ * `~/mdp-data/accounts/<name>/` once the URL leaves /login.
  */
-async function startLogin({ profilePath, email = null, password = null, timeoutMs = 10 * 60 * 1000 } = {}) {
+async function startLogin({
+  profilePath,
+  email = null,
+  password = null,
+  name = null,
+  timeoutMs = 10 * 60 * 1000,
+} = {}) {
   if (!profilePath) {
     throw new Error("profilePath required");
   }
@@ -68,7 +79,13 @@ async function startLogin({ profilePath, email = null, password = null, timeoutM
   sessions.set(sessionId, session);
 
   // Run the wait in the background. Errors update the session row.
-  _runLoginFlow(sessionId, session, { profilePath: expandedPath, email, password, timeoutMs })
+  _runLoginFlow(sessionId, session, {
+    profilePath: expandedPath,
+    email,
+    password,
+    name,
+    timeoutMs,
+  })
     .catch((e) => {
       session.status = "failed";
       session.lastError = e && e.message ? e.message : String(e);
@@ -129,6 +146,21 @@ async function _runLoginFlow(sessionId, session, opts) {
       await page.waitForTimeout(1500);
       const url = page.url();
       if (url && !/\/login|\/recover|\/checkpoint/i.test(url)) {
+        // Persist kit-accounts artifacts BEFORE marking completed so the
+        // plugin's poll never observes a completed status with no
+        // on-disk account behind it. Failures here abort the success
+        // signal — better to keep status=running and let the user
+        // retry than to silently lose the freshly-captured cookies.
+        if (opts.name) {
+          try {
+            await persistKitAccount(browser, page, opts.name, opts.profilePath);
+          } catch (persistErr) {
+            session.status = "failed";
+            session.lastError = `persist: ${persistErr && persistErr.message ? persistErr.message : String(persistErr)}`;
+            session.updatedAt = new Date().toISOString();
+            return;
+          }
+        }
         session.status = "completed";
         session.updatedAt = new Date().toISOString();
         return;
@@ -170,4 +202,153 @@ async function cancelSession(sessionId) {
   return { cancelled: true };
 }
 
-module.exports = { startLogin, checkSession, cancelSession, expandHome };
+module.exports = { startLogin, checkSession, cancelSession, expandHome, persistKitAccount };
+
+// ─── Kit-accounts persistence ─────────────────────────────────────────
+
+/**
+ * Resolve the kit-accounts root, honoring `MDP_ACCOUNTS_ROOT` if set.
+ * Mirrors `mdp-kit/ts/kit-accounts/src/paths.ts::defaultRoot` so the
+ * sidecar writes to the same directory the Go handler reads from.
+ */
+function accountsRoot() {
+  const fromEnv = process.env.MDP_ACCOUNTS_ROOT;
+  if (fromEnv && fromEnv.length > 0) {
+    return path.resolve(expandHome(fromEnv));
+  }
+  return path.resolve(os.homedir(), "mdp-data", "accounts");
+}
+
+/**
+ * Pull cookies + GraphQL token out of the live browser context and write
+ * a kit-accounts bundle under `<root>/<name>/`. The Go handler reads
+ * these artifacts when serving `GET /kit-accounts`, so a missing
+ * meta.json is what made the dropdown look empty after a fresh login.
+ *
+ * Writes atomically (write to <name>.tmp, rename) so a crash mid-write
+ * never leaves a torn file behind.
+ */
+async function persistKitAccount(browser, page, name, profilePath) {
+  if (!name) throw new Error("name required");
+  // browser is the launchPersistentContext return value; its cookies()
+  // method returns every cookie visible to the persistent profile.
+  const cookies = await browser.cookies();
+  if (!Array.isArray(cookies) || cookies.length === 0) {
+    throw new Error("no cookies captured from browser");
+  }
+
+  // Normalize Playwright's cookie shape to match kit CookieSchema:
+  //   { name, value, domain, path, expires, httpOnly, secure, sameSite? }
+  const normCookies = cookies
+    .map((c) => {
+      const sameSite = (() => {
+        const v = (c.sameSite || "").toString();
+        if (/strict/i.test(v)) return "Strict";
+        if (/lax/i.test(v)) return "Lax";
+        if (/none/i.test(v)) return "None";
+        return undefined;
+      })();
+      const out = {
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        // default path to "/" so cookies scraped from a feed URL still
+        // round-trip cleanly; matches the existing on-disk shape.
+        path: c.path || "/",
+        // Playwright uses -1 for session cookies — preserve verbatim so
+        // kit's isAppStateExpired probe keeps working.
+        expires: typeof c.expires === "number" ? c.expires : -1,
+        httpOnly: Boolean(c.httpOnly),
+        secure: c.secure !== false,
+      };
+      if (sameSite) out.sameSite = sameSite;
+      return out;
+    })
+    .filter((c) => c.domain && c.name);
+
+  // Extract fb_dtsg + user_id from cookies/HTML so the persisted
+  // appstate validates against FacebookAppStateSchema. fb_dtsg is a
+  // hidden <input> on most pages; if we can't find it, fall back to a
+  // stable-but-empty string — GraphQL endpoints will refresh it on the
+  // next request. user_id lives in the c_user cookie.
+  const userCookie = normCookies.find((c) => c.name === "c_user");
+  const userId = userCookie ? userCookie.value : null;
+  if (!userId) {
+    throw new Error("c_user cookie missing — login did not complete");
+  }
+  let fbDtsg = "";
+  try {
+    const html = await page.content().catch(() => "");
+    const m = /"token":"([^"]+)"/.exec(html) || /name="fb_dtsg" value="([^"]+)"/.exec(html);
+    if (m) fbDtsg = m[1];
+  } catch { /* ignore — leave empty */ }
+
+  const nowIso = new Date().toISOString();
+  const meta = {
+    name,
+    status: "active",
+    createdAt: nowIso,
+    lastUsedAt: null,
+    lastHealthCheck: null,
+    healthStatus: "healthy",
+    tags: [],
+    profilePath: profilePath ? expandHome(profilePath) : undefined,
+  };
+  const appState = {
+    platform: "facebook",
+    cookies: normCookies,
+    fb_dtsg: fbDtsg,
+    user_id: userId,
+    captured_at: nowIso,
+    source: "login",
+  };
+  const proxy = { type: "none" };
+
+  const root = accountsRoot();
+  const dir = path.join(root, name);
+  fs.mkdirSync(dir, { recursive: true });
+  atomicWriteJson(path.join(dir, "meta.json"), meta);
+  atomicWriteJson(path.join(dir, "appstate.json"), appState);
+  atomicWriteJson(path.join(dir, "proxy.json"), proxy);
+  refreshIndex(root, meta);
+}
+
+/**
+ * Atomic JSON write: write to <p>.tmp then rename. Mirrors
+ * `mdp-kit/ts/kit-accounts/src/fs.ts::writeJsonAtomic` so the on-disk
+ * shape matches what the TS registry produces.
+ */
+function atomicWriteJson(p, obj) {
+  const tmp = `${p}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  fs.renameSync(tmp, p);
+}
+
+/**
+ * Read-modify-write `<root>/index.json` so the new account shows up in
+ * `GET /kit-accounts` without a registry rebuild. If the index is
+ * missing or corrupt, write a fresh one.
+ */
+function refreshIndex(root, meta) {
+  const indexPath = path.join(root, "index.json");
+  let idx = { version: 1, generatedAt: new Date().toISOString(), accounts: [] };
+  try {
+    const raw = fs.readFileSync(indexPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.accounts)) idx = parsed;
+  } catch { /* fresh index */ }
+
+  const summary = {
+    name: meta.name,
+    platform: meta.platform || "facebook",
+    status: meta.status,
+    healthStatus: meta.healthStatus,
+    lastUsedAt: meta.lastUsedAt,
+  };
+  const i = idx.accounts.findIndex((a) => a.name === meta.name);
+  if (i >= 0) idx.accounts[i] = summary;
+  else idx.accounts.push(summary);
+  idx.accounts.sort((a, b) => a.name.localeCompare(b.name));
+  idx.generatedAt = new Date().toISOString();
+  atomicWriteJson(indexPath, idx);
+}

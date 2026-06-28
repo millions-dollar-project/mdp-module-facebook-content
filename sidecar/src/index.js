@@ -124,10 +124,10 @@ app.post("/kling/generate", async (req, res) => {
 
 // ─── Account Login (manual Playwright flow) ──────────────────────────
 app.post("/account-login/start", async (req, res) => {
-  const { profilePath, email, password, timeoutMs } = req.body;
+  const { profilePath, email, password, timeoutMs, name } = req.body;
   if (!profilePath) return res.status(400).json({ error: "profilePath required" });
   try {
-    const out = await startLogin({ profilePath, email, password, timeoutMs });
+    const out = await startLogin({ profilePath, email, password, name, timeoutMs });
     res.json({ success: true, ...out });
   } catch (err) {
     console.error("[account-login/start]", err.message);
