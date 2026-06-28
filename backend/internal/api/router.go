@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -146,6 +147,17 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	var brainClient *mcp.BrainClient
 	if d.BrainBinaryPath != "" {
 		brainClient = mcp.NewBrainClient(d.BrainBinaryPath, 30*time.Second)
+		// The brain subprocess reads DATABASE_URL (same env name as the
+		// parent FB process), but they point at DIFFERENT databases
+		// (brain on :5434 vs facebook on :5433). The parent already
+		// filters its own DATABASE_URL out of the child env, so we
+		// must inject the brain-specific DSN explicitly. Falls back
+		// to a localhost dev default if the operator didn't set it.
+		brainDSN := os.Getenv("BRAIN_DATABASE_URL")
+		if brainDSN == "" {
+			brainDSN = "postgres://brain:brain@localhost:5434/brain?sslmode=disable"
+		}
+		brainClient.SetEnv(map[string]string{"DATABASE_URL": brainDSN})
 	}
 	var brainSvc *service.BrainFeedService
 	if brainClient != nil {

@@ -7,11 +7,37 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// filterEnv returns a copy of env with the named keys removed. Used to
+// prevent leaking parent-process env (e.g. DATABASE_URL pointing at the
+// facebook DB) to a child subprocess that has its own (e.g. mdp-brain
+// reads its own .env for postgres on port 5434).
+func filterEnv(env []string, dropKeys ...string) []string {
+	drop := make(map[string]struct{}, len(dropKeys))
+	for _, k := range dropKeys {
+		drop[k] = struct{}{}
+	}
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		eq := strings.IndexByte(kv, '=')
+		if eq <= 0 {
+			out = append(out, kv)
+			continue
+		}
+		if _, hit := drop[kv[:eq]]; hit {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
 
 var ErrBrainClient = errors.New("brain client error")
 
@@ -54,8 +80,9 @@ type PrepareResult struct {
 
 // BrainClient wraps a long-lived mdp-brain MCP stdio subprocess.
 type BrainClient struct {
-	binary  string
-	timeout time.Duration
+	binary   string
+	timeout  time.Duration
+	extraEnv map[string]string
 
 	mu     sync.Mutex
 	cmd    *exec.Cmd
@@ -69,6 +96,15 @@ func NewBrainClient(binaryPath string, timeout time.Duration) *BrainClient {
 		timeout = 30 * time.Second
 	}
 	return &BrainClient{binary: binaryPath, timeout: timeout}
+}
+
+// SetEnv sets extra environment variables to pass to the brain
+// subprocess. Used to inject BRAIN_DATABASE_URL (and strip the parent's
+// DATABASE_URL which points at the facebook DB) so the child mdp-brain
+// process can connect to its own postgres. Safe to call before the
+// subprocess is started (lazy on first call).
+func (c *BrainClient) SetEnv(env map[string]string) {
+	c.extraEnv = env
 }
 
 // call sends one JSON-RPC request and waits for the matching response (by id).
@@ -133,6 +169,18 @@ func (c *BrainClient) ensure(ctx context.Context) error {
 	// brain daemon mid-conversation. The request context is still used
 	// for per-call timeouts in call().
 	cmd := exec.CommandContext(context.Background(), c.binary)
+	// Don't inherit our DATABASE_URL (points at the facebook DB) —
+	// the brain subprocess reads its own DATABASE_URL via SetEnv
+	// (BRAIN_DATABASE_URL is the conventional override; we map it
+	// to DATABASE_URL in the child env). Inherit the rest of the env
+	// (PATH, OS quirks, etc.) so the binary can find `node`, `go`,
+	// etc. on Windows. Setting `Env: nil` would give it an empty env
+	// which breaks Windows binary startup.
+	env := filterEnv(os.Environ(), "DATABASE_URL")
+	for k, v := range c.extraEnv {
+		env = append(env, k+"="+v)
+	}
+	cmd.Env = env
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("%w: stdin pipe: %v", ErrBrainClient, err)
