@@ -879,13 +879,16 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
               }}
             />
           </FormField>
-          <FormField label="Profile path" hint="Tự sinh từ tên — sửa nếu muốn">
-            <Input
-              value={accForm.profilePath}
-              onChange={(e) => setAccForm((s) => ({ ...s, profilePath: e.target.value }))}
-              placeholder="~/.mdp/facebook/profiles/<tên-slug>"
-            />
-          </FormField>
+          {/* Profile path is fixed — derived from the account name. Show it
+              as a muted caption so the user can confirm the on-disk path
+              before pressing the action button. Not editable. */}
+          <p
+            className="fb-muted"
+            style={{ fontSize: 12, margin: 0, fontFamily: 'var(--ds-font-mono, monospace)' }}
+            data-testid="acc-profile-path-hint"
+          >
+            Profile: {accForm.profilePath || `~/.mdp/facebook/profiles/${accForm.name}`}
+          </p>
           <p className="fb-muted" style={{ fontSize: 12, margin: 0 }}>
             Bấm <strong>Thêm + mở trình duyệt đăng nhập</strong> để hệ thống tự
             mở Chrome ở chế độ hiện, điền email + mật khẩu rồi chờ bạn xác
