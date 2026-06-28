@@ -429,7 +429,20 @@ func (c *BrainClient) GetLearningState(ctx context.Context, scope map[string]str
 	if err != nil {
 		return nil, err
 	}
-	b, _ := json.Marshal(res)
+	parsed := res
+	if sc, ok := res["structuredContent"].(map[string]any); ok && len(sc) > 0 {
+		parsed = sc
+	} else if contentArr, ok := res["content"].([]any); ok && len(contentArr) > 0 {
+		if first, ok := contentArr[0].(map[string]any); ok {
+			if txt, ok := first["text"].(string); ok && txt != "" {
+				var sc map[string]any
+				if err := json.Unmarshal([]byte(txt), &sc); err == nil {
+					parsed = sc
+				}
+			}
+		}
+	}
+	b, _ := json.Marshal(parsed)
 	var out GetLearningStateResult
 	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, fmt.Errorf("%w: unmarshal: %v", ErrBrainClient, err)
@@ -471,7 +484,25 @@ func (c *BrainClient) QueryGraph(ctx context.Context, scope map[string]string, e
 	if err != nil {
 		return nil, err
 	}
-	b, _ := json.Marshal(res)
+	// MCP server wraps tool results in two parallel payloads:
+	//   - structuredContent: the parsed Go struct
+	//   - content: [{type:"text", text:"<JSON string of same struct>"}]
+	// The go-sdk v1.6.1 sometimes returns structuredContent populated and
+	// sometimes only content[0].text — read both, prefer structuredContent.
+	parsed := res
+	if sc, ok := res["structuredContent"].(map[string]any); ok && len(sc) > 0 {
+		parsed = sc
+	} else if contentArr, ok := res["content"].([]any); ok && len(contentArr) > 0 {
+		if first, ok := contentArr[0].(map[string]any); ok {
+			if txt, ok := first["text"].(string); ok && txt != "" {
+				var sc map[string]any
+				if err := json.Unmarshal([]byte(txt), &sc); err == nil {
+					parsed = sc
+				}
+			}
+		}
+	}
+	b, _ := json.Marshal(parsed)
 	var out QueryGraphResult
 	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, fmt.Errorf("%w: unmarshal: %v", ErrBrainClient, err)
