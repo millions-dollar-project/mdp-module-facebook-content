@@ -104,6 +104,7 @@ func (s *BrainFeedService) Ingest(ctx context.Context, posts []models.CrawledPos
 				SourceID: p.SourceURL,
 				Kind:     "post",
 				UserID:   "default",
+				AccountID: p.AccountUUID,
 				Metadata: map[string]any{
 					"likes":    p.Likes,
 					"comments": p.Comments,

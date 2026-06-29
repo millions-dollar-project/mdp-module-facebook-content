@@ -110,20 +110,22 @@ describe('ingestPosts', () => {
 
   it('POSTs body to facebook:brain/ingest', async () => {
     const res = await ingestPosts({
-      posts: [
-        {
-          sourceURL: 'u1',
-          content: 'c',
-          permalink: 'p',
-          postedAt: new Date().toISOString(),
-          mediaURLs: [],
-          videoURLs: [],
-          mediaType: 'text',
-          likes: 0,
-          comments: 0,
-          shares: 0,
-        },
-      ],
+      req: {
+        posts: [
+          {
+            sourceURL: 'u1',
+            content: 'c',
+            permalink: 'p',
+            postedAt: new Date().toISOString(),
+            mediaURLs: [],
+            videoURLs: [],
+            mediaType: 'text',
+            likes: 0,
+            comments: 0,
+            shares: 0,
+          },
+        ],
+      },
     });
     expect(res.ingested).toBe(1);
     const [call] = mock.calls;

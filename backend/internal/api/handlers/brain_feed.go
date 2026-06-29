@@ -128,6 +128,7 @@ type ingestReq struct {
 // Ingest godoc
 // @Summary Ingest crawled Facebook posts into the brain feed
 // @Tags brain
+// @Param account_id query string false "Per-account scope override (SHA-1 v5 UUID of kit-account name). Empty = default BrainScope."
 func (h *BrainFeedHandler) Ingest(c *gin.Context) {
 	if h.ingest == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "ingest_unavailable", "message": "ingest not configured"})
@@ -137,6 +138,17 @@ func (h *BrainFeedHandler) Ingest(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "bad_request", "message": err.Error()})
 		return
+	}
+	// Stamp per-account scope onto each post so the downstream Brain
+	// MCP ingest (and any future brain_feed row key) carries the kit
+	// account identifier. Body-level `account_uuid` still wins (a
+	// plugin can override per-call), otherwise we fall back to the
+	// query parameter so curl callers can pin scope too.
+	queryAccountID := c.Query("account_id")
+	for i := range req.Posts {
+		if req.Posts[i].AccountUUID == "" {
+			req.Posts[i].AccountUUID = queryAccountID
+		}
 	}
 	res, err := h.ingest.Ingest(c.Request.Context(), req.Posts)
 	if err != nil {

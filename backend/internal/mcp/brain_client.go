@@ -312,7 +312,13 @@ type IngestParams struct {
 	SourceID string         // idempotency key (post URL or hash)
 	Kind     string         // "post", "comment", ...
 	UserID   string         // owning user id; falls back to "default"
-	Metadata map[string]any // optional fields like likes/comments/page
+	// AccountID is the kit-account SHA-1 v5 UUID. Threaded through from
+	// the per-request `?account_id=` query so future crawls land in a
+	// per-account scope row (Brain's `brain_query_graph` filters on
+	// `scope @> '{"account_id":"..."}'`). Empty = no account scope
+	// (legacy behaviour, scope = {user_id:"default"}).
+	AccountID string
+	Metadata  map[string]any // optional fields like likes/comments/page
 }
 
 // IngestContent calls brain_ingest_raw_input on mdp-brain and returns the
@@ -336,6 +342,19 @@ func (c *BrainClient) IngestContent(ctx context.Context, p IngestParams) (string
 		"content":   p.Content,
 		"user_id":   p.UserID,
 	}
+	// NOTE: `account_id` is intentionally NOT forwarded as a flat arg
+	// here. mdp-brain's `brainIngestRawInputIn` struct (mdp-brain/
+	// internal/mcp/brain_tools.go:19) currently only declares `user_id`;
+	// sending an undeclared key triggers go-sdk/mcp validation
+	// ("unexpected additional properties [\"account_id\"]") and the
+	// ingest 5xx's. Until mdp-brain adds an `AccountID` field to that
+	// input struct, fresh crawls continue to land under scope =
+	// {user_id: "default"}.
+	//
+	// FB-content side is fully wired (CrawledPostInput.AccountUUID ->
+	// service.Ingest -> IngestParams.AccountID), so the moment mdp-brain
+	// adds the field the only change needed here is:
+	//   if p.AccountID != "" { args["account_id"] = p.AccountID }
 	if len(p.Metadata) > 0 {
 		args["metadata"] = p.Metadata
 	}

@@ -18,6 +18,13 @@ type CrawledPostInput struct {
 	Shares      int       `json:"shares"`
 	PostedAt    time.Time `json:"posted_at"`
 	Permalink   string    `json:"permalink"`
+	// AccountUUID is the SHA-1 v5 UUID of the kit-account this post
+	// belongs to (mdp.kit.accounts -> name -> AccountUUIDFromName).
+	// Empty = "default" (legacy behaviour). When set, the brain feed
+	// row and the brain MCP ingest both tag the scope with
+	// `account_id = <uuid>` so dashboard panels can filter by kit
+	// account.
+	AccountUUID string `json:"account_uuid,omitempty"`
 }
 
 // BrainFeedRow mirrors facebook.brain_feeds.

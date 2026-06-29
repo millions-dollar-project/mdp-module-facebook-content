@@ -284,10 +284,25 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
     setAccShowAdvanced(false);
   };
 
+  React.useEffect(() => {
+    if (!selectedAccountId && fbAccounts.length > 0) {
+      setSelectedAccountId(fbAccounts[fbAccounts.length - 1].id);
+    }
+  }, [fbAccounts, selectedAccountId]);
+
+  const selectedAccount = React.useMemo(() => {
+    return fbAccounts.find((account) => account.id === selectedAccountId) ?? fbAccounts[fbAccounts.length - 1] ?? null;
+  }, [fbAccounts, selectedAccountId]);
+
   /**
    * Push freshly crawled posts to Brain. Always-on per the T13 plan
    * (D7: no toggle). Failures are surfaced as a toast but never abort
    * the crawl flow — the user already has the posts on screen.
+   *
+   * The currently-selected kit account's UUID is forwarded so the
+   * resulting brain_feed rows and brain MCP ingest both carry the
+   * `account_id` scope. Empty UUID keeps the legacy "default" scope
+   * (e.g. when the user has not picked a kit account yet).
    */
   const autoIngestPosts = React.useCallback(
     async (toIngest: CrawledPost[]) => {
@@ -295,23 +310,27 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
         setLastIngestedCount(0);
         return;
       }
+      const accountUUID = selectedAccount?.uuid ?? '';
       try {
         const res = await ingest({
-          posts: toIngest.map((p) => ({
-            sourceURL: p.permalink,
-            pageID: p.pageId,
-            content: p.content ?? '',
-            mediaURLs: p.mediaUrls ?? [],
-            videoURLs: p.videoUrls ?? [],
-            thumbnailURLs: p.thumbnailUrls,
-            fullPicture: p.fullPicture,
-            mediaType: p.mediaType ?? '',
-            likes: p.likes ?? 0,
-            comments: p.comments ?? 0,
-            shares: p.shares ?? 0,
-            postedAt: p.postedAt ?? '',
-            permalink: p.permalink ?? '',
-          })),
+          req: {
+            posts: toIngest.map((p) => ({
+              sourceURL: p.permalink,
+              pageID: p.pageId,
+              content: p.content ?? '',
+              mediaURLs: p.mediaUrls ?? [],
+              videoURLs: p.videoUrls ?? [],
+              thumbnailURLs: p.thumbnailUrls,
+              fullPicture: p.fullPicture,
+              mediaType: p.mediaType ?? '',
+              likes: p.likes ?? 0,
+              comments: p.comments ?? 0,
+              shares: p.shares ?? 0,
+              postedAt: p.postedAt ?? '',
+              permalink: p.permalink ?? '',
+            })),
+          },
+          accountId: accountUUID,
         });
         if (res.ingested > 0) {
           toast.success(`Đã đẩy ${res.ingested} bài vào Brain`);
@@ -335,18 +354,8 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
         setLastIngestedCount(0);
       }
     },
-    [ingest, toast],
+    [ingest, toast, selectedAccount],
   );
-
-  React.useEffect(() => {
-    if (!selectedAccountId && fbAccounts.length > 0) {
-      setSelectedAccountId(fbAccounts[fbAccounts.length - 1].id);
-    }
-  }, [fbAccounts, selectedAccountId]);
-
-  const selectedAccount = React.useMemo(() => {
-    return fbAccounts.find((account) => account.id === selectedAccountId) ?? fbAccounts[fbAccounts.length - 1] ?? null;
-  }, [fbAccounts, selectedAccountId]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {

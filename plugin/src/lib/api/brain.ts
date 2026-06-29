@@ -60,10 +60,24 @@ export function deleteBrainFeed(id: string): Promise<{ deleted: boolean }> {
   );
 }
 
-export function ingestPosts(req: IngestPostsRequest): Promise<IngestResponse> {
-  return fbFetch<IngestResponse>('brain/ingest', {
+export interface IngestPostsParams {
+  req: IngestPostsRequest;
+  /**
+   * Per-account scope override (SHA-1 v5 UUID of kit-account name).
+   * When set, the backend stamps `account_id` onto every post in the
+   * batch so the resulting brain_feed rows and brain MCP ingest both
+   * carry the kit account identity. Empty (default) keeps the
+   * no-scope behavior that the dashboard had before multi-account
+   * scoping.
+   */
+  accountId?: string;
+}
+
+export function ingestPosts(params: IngestPostsParams): Promise<IngestResponse> {
+  const qs = params.accountId ? `?account_id=${encodeURIComponent(params.accountId)}` : '';
+  return fbFetch<IngestResponse>(`brain/ingest${qs}`, {
     method: 'POST',
-    body: req,
+    body: params.req,
   });
 }
 
