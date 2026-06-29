@@ -4,6 +4,9 @@
  * The hook owns an AbortController so each filter change (page, status,
  * search, etc.) cancels the in-flight request before starting a new one.
  * `reload()` returns the promise callers can await for manual refresh.
+ *
+ * accountId is the SHA-1 v5 UUID of a kit account (forwarded as
+ * ?account_id=). When omitted the backend keeps its default scope.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listBrainFeed } from '../lib/api/brain';
@@ -17,6 +20,8 @@ export interface UseBrainFeedParams {
   from?: string;
   to?: string;
   search?: string;
+  /** Per-account scope override (SHA-1 v5 UUID). */
+  accountId?: string;
 }
 
 export function useBrainFeed(params: UseBrainFeedParams) {
@@ -46,7 +51,16 @@ export function useBrainFeed(params: UseBrainFeedParams) {
     } finally {
       if (!ctl.signal.aborted) setLoading(false);
     }
-  }, [params.page, params.pageSize, params.sourcePage, params.status, params.from, params.to, params.search]);
+  }, [
+    params.page,
+    params.pageSize,
+    params.sourcePage,
+    params.status,
+    params.from,
+    params.to,
+    params.search,
+    params.accountId,
+  ]);
 
   useEffect(() => {
     reload();

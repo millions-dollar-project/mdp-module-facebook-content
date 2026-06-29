@@ -346,6 +346,13 @@ export interface PageSettings {
 export interface FBAccount {
   id: string;
   name: string;
+  /**
+   * SHA-1 v5 UUID derived from `name` (mirrors
+   * `service.AccountUUIDFromName` on the Go side). The Brain tab
+   * dropdown forwards this UUID to dashboard endpoints via
+   * `?account_id=`; consumers that don't care can safely ignore it.
+   */
+  uuid?: string;
   email?: string;
   /**
    * Display profile path. Server-side `kit-accounts` derives a default

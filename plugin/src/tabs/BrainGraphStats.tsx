@@ -8,8 +8,12 @@ import React from 'react';
 import { Card, EmptyState } from '../components';
 import { useBrainGraph } from '../hooks/useBrainGraph';
 
-export const BrainGraphStats: React.FC = () => {
-  const { data, loading, error } = useBrainGraph();
+export interface BrainGraphStatsProps {
+  accountId?: string;
+}
+
+export const BrainGraphStats: React.FC<BrainGraphStatsProps> = ({ accountId }) => {
+  const { data, loading, error } = useBrainGraph({ accountId });
 
   if (loading && !data) {
     return (

@@ -37,12 +37,14 @@ func NewBrainLearningHandler(brain BrainLearningClient, scope map[string]string)
 // List godoc
 // @Summary List proposed learning signals from the Brain MCP
 // @Tags brain
+// @Param account_id query string false "Per-account scope override (SHA-1 v5 UUID of kit-account name). Empty = default BrainScope."
 func (h *BrainLearningHandler) List(c *gin.Context) {
 	if h.brain == nil {
 		c.JSON(http.StatusOK, gin.H{"signals": []mcp.LearningSignal{}})
 		return
 	}
-	res, err := h.brain.GetLearningState(c.Request.Context(), h.scope, "proposed", "")
+	scope := withAccountScope(h.scope, c.Query("account_id"))
+	res, err := h.brain.GetLearningState(c.Request.Context(), scope, "proposed", "")
 	if err != nil {
 		// Brain is best-effort. The UI shows an EmptyState; a transient
 		// brain outage never 5xx's the dashboard.

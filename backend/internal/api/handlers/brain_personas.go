@@ -44,12 +44,14 @@ type BrainPersonaItem struct {
 // List godoc
 // @Summary List persona entities known to the Brain MCP
 // @Tags brain
+// @Param account_id query string false "Per-account scope override (SHA-1 v5 UUID of kit-account name). Empty = default BrainScope."
 func (h *BrainPersonasHandler) List(c *gin.Context) {
 	if h.brain == nil {
 		c.JSON(http.StatusOK, gin.H{"personas": []BrainPersonaItem{}})
 		return
 	}
-	res, err := h.brain.QueryGraph(c.Request.Context(), h.scope, []string{"profile"}, 50)
+	scope := withAccountScope(h.scope, c.Query("account_id"))
+	res, err := h.brain.QueryGraph(c.Request.Context(), scope, []string{"profile"}, 50)
 	if err != nil {
 		// Brain is best-effort. The UI shows an EmptyState; we never
 		// want a transient brain outage to 5xx the dashboard.

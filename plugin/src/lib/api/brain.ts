@@ -28,6 +28,13 @@ export interface ListBrainFeedParams {
   from?: string;
   to?: string;
   search?: string;
+  /**
+   * Per-account scope override (SHA-1 v5 UUID of kit-account name).
+   * When set, the backend filters brain_feed rows to only those ingested
+   * under this account. Empty (default) keeps the no-filter behavior
+   * that the dashboard had before multi-account scoping.
+   */
+  accountId?: string;
   signal?: AbortSignal;
 }
 
@@ -40,6 +47,7 @@ export function listBrainFeed(params: ListBrainFeedParams): Promise<BrainFeedLis
   if (params.from) q.set('from', params.from);
   if (params.to) q.set('to', params.to);
   if (params.search) q.set('search', params.search);
+  if (params.accountId) q.set('account_id', params.accountId);
   return fbFetch<BrainFeedListResponse>(`brain/feed?${q.toString()}`, {
     signal: params.signal,
   });
@@ -68,8 +76,18 @@ export function generateDrafts(req: GenerateRequest): Promise<GenerateResponse> 
 
 // ── Dashboard (T6) ──────────────────────────────────────────────────
 
-export function fetchBrainOverview(signal?: AbortSignal): Promise<BrainOverview> {
-  return fbFetch<BrainOverview>('brain/overview', { signal });
+/**
+ * Build a `?account_id=<uuid>` suffix when an accountId is provided.
+ * Returns '' when not set, so callers can simply concatenate:
+ *   fetchBrainOverview(signal)        → `brain/overview`
+ *   fetchBrainOverview(signal, 'abc') → `brain/overview?account_id=abc`
+ */
+function accountIdQuery(accountId?: string): string {
+  return accountId ? `?account_id=${encodeURIComponent(accountId)}` : '';
+}
+
+export function fetchBrainOverview(signal?: AbortSignal, accountId?: string): Promise<BrainOverview> {
+  return fbFetch<BrainOverview>(`brain/overview${accountIdQuery(accountId)}`, { signal });
 }
 
 export function fetchBrainProvenance(
@@ -82,12 +100,12 @@ export function fetchBrainProvenance(
   );
 }
 
-export function fetchBrainPersonas(signal?: AbortSignal): Promise<{ personas: BrainPersona[] }> {
-  return fbFetch<{ personas: BrainPersona[] }>('brain/personas', { signal });
+export function fetchBrainPersonas(signal?: AbortSignal, accountId?: string): Promise<{ personas: BrainPersona[] }> {
+  return fbFetch<{ personas: BrainPersona[] }>(`brain/personas${accountIdQuery(accountId)}`, { signal });
 }
 
-export function fetchBrainLearning(signal?: AbortSignal): Promise<{ signals: BrainLearningSignal[] }> {
-  return fbFetch<{ signals: BrainLearningSignal[] }>('brain/learning', { signal });
+export function fetchBrainLearning(signal?: AbortSignal, accountId?: string): Promise<{ signals: BrainLearningSignal[] }> {
+  return fbFetch<{ signals: BrainLearningSignal[] }>(`brain/learning${accountIdQuery(accountId)}`, { signal });
 }
 
 export function applyBrainLearning(
@@ -116,6 +134,6 @@ export function recordBrainFeedback(
   });
 }
 
-export function fetchBrainGraphStats(signal?: AbortSignal): Promise<BrainGraphStats> {
-  return fbFetch<BrainGraphStats>('brain/graph/stats', { signal });
+export function fetchBrainGraphStats(signal?: AbortSignal, accountId?: string): Promise<BrainGraphStats> {
+  return fbFetch<BrainGraphStats>(`brain/graph/stats${accountIdQuery(accountId)}`, { signal });
 }

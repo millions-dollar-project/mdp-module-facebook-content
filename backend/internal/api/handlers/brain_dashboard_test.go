@@ -93,6 +93,13 @@ func (s *stubOverviewService) GetOverview(ctx context.Context) (*service.BrainOv
 	return s.out, s.err
 }
 
+// GetOverviewWithScope matches the interface but ignores scope — the
+// stub returns the same canned output for both call shapes. Handler
+// tests assert response shape, not which scope was used.
+func (s *stubOverviewService) GetOverviewWithScope(ctx context.Context, scope map[string]string) (*service.BrainOverview, error) {
+	return s.out, s.err
+}
+
 func TestBrainOverviewHandler_Get(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

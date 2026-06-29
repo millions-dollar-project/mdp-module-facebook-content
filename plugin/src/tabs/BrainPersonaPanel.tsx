@@ -9,8 +9,12 @@ import React from 'react';
 import { Card, EmptyState } from '../components';
 import { useBrainPersonas } from '../hooks/useBrainPersonas';
 
-export const BrainPersonaPanel: React.FC = () => {
-  const { personas, loading, error } = useBrainPersonas();
+export interface BrainPersonaPanelProps {
+  accountId?: string;
+}
+
+export const BrainPersonaPanel: React.FC<BrainPersonaPanelProps> = ({ accountId }) => {
+  const { personas, loading, error } = useBrainPersonas({ accountId });
 
   if (loading && personas.length === 0) {
     return (

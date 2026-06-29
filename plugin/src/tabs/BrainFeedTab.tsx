@@ -16,6 +16,7 @@ import { Card, ErrorBoundary, useToast } from '../components';
 import { useBrainFeed } from '../hooks/useBrainFeed';
 import { useBrainDelete } from '../hooks/useBrainDelete';
 import { useBrainGenerate } from '../hooks/useBrainGenerate';
+import { useFBAccounts } from '../hooks/useRepost';
 import { BrainFeedHeader, type BrainFeedFilterState } from './BrainFeedHeader';
 import { BrainFeedRow } from './BrainFeedRow';
 import { BrainFeedPagination } from './BrainFeedPagination';
@@ -37,11 +38,24 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [peekId, setPeekId] = useState<string | null>(null);
   const [dashboardTick, setDashboardTick] = useState(0);
+  // kit-account scoping: '' = no filter (legacy default behavior);
+  // otherwise the SHA-1 v5 UUID of the chosen kit-account name. We
+  // store the *name* in state so the dropdown label stays human-readable
+  // and the UUID is derived at fetch time (toFBAccount populates `uuid`
+  // for every entry from useFBAccounts).
+  const [selectedAccountName, setSelectedAccountName] = useState<string>('');
+  const { data: accounts } = useFBAccounts();
+  const selectedAccount = useMemo(
+    () => accounts.find((a) => a.name === selectedAccountName) ?? null,
+    [accounts, selectedAccountName],
+  );
+  const accountUUID = selectedAccount?.uuid ?? '';
   const { data, loading, reload } = useBrainFeed({
     page,
     pageSize: 20,
     status: filter.status || undefined,
     search: filter.search || undefined,
+    accountId: accountUUID || undefined,
   });
   const peekedFeed = useMemo(
     () => data.items.find((i) => i.ID === peekId) ?? null,
@@ -63,6 +77,15 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
       return changed ? next : prev;
     });
   }, [data.items]);
+
+  // Reset pagination + selection + peek drawer when the account scope
+  // changes; otherwise the user might be stuck on an empty page index
+  // (account A had 5 pages, account B only has 1).
+  useEffect(() => {
+    setPage(1);
+    setSelected(new Set());
+    setPeekId(null);
+  }, [accountUUID]);
 
   const handleToggle = (id: string) => {
     setSelected((prev) => {
@@ -130,6 +153,46 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
       <ErrorBoundary label="dashboard">
         <div
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            marginBottom: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <label
+            htmlFor="brain-account-select"
+            style={{ fontSize: 13, color: 'var(--ds-text-muted)' }}
+          >
+            Tài khoản:
+          </label>
+          <select
+            id="brain-account-select"
+            data-testid="brain-account-select"
+            value={selectedAccountName}
+            onChange={(e) => setSelectedAccountName(e.target.value)}
+            className="fb-select"
+            style={{ minWidth: 240 }}
+          >
+            <option value="">Tất cả tài khoản (default)</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.name}>
+                {a.name}
+                {a.status && a.status !== 'active' ? ` · ${a.status}` : ''}
+              </option>
+            ))}
+          </select>
+          <span
+            style={{ fontSize: 11, color: 'var(--ds-text-muted)' }}
+            data-testid="brain-account-scope"
+          >
+            {accountUUID
+              ? `scope.account_id = ${accountUUID.slice(0, 8)}…`
+              : 'scope.account_id = (none — legacy default)'}
+          </span>
+        </div>
+        <div
+          style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
             gap: 12,
@@ -137,11 +200,14 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
           }}
           key={dashboardTick}
         >
-          <BrainOverviewPanel />
-          <BrainPersonaPanel />
-          <BrainGraphStats />
+          <BrainOverviewPanel accountId={accountUUID || undefined} />
+          <BrainPersonaPanel accountId={accountUUID || undefined} />
+          <BrainGraphStats accountId={accountUUID || undefined} />
         </div>
-        <BrainLearningPanel onApplied={() => setDashboardTick((t) => t + 1)} />
+        <BrainLearningPanel
+          accountId={accountUUID || undefined}
+          onApplied={() => setDashboardTick((t) => t + 1)}
+        />
       </ErrorBoundary>
       <ErrorBoundary label="feed list">
       {!isEmpty && (

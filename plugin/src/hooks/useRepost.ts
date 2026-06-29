@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { fbFetch } from '../lib/api';
 import { useFacebookApi } from './useFacebookApi';
 import type { RepostCampaign, RepostJob, FBAccount, FBGroup, CrawledPostReal } from '../lib/types';
+import { accountUUIDFromName } from '../lib/accountUUID';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 2: kit-accounts is the source of truth for FB accounts (replaces the
@@ -31,6 +32,11 @@ const toFBAccount = (raw: KitAccountSummaryRaw): FBAccount => ({
   // (e.g. dropdowns) keep working without a rewrite.
   id: raw.id ?? raw.name,
   name: raw.name,
+  // SHA-1 v5 UUID derived from the kit-account name. This is the same
+  // identifier the Go backend uses for kit-account scoping (see
+  // service.AccountUUIDFromName); the dropdown in the Brain tab forwards
+  // this UUID to the dashboard endpoints via ?account_id=.
+  uuid: accountUUIDFromName(raw.name),
   profilePath: raw.profilePath ?? `~/.mdp/facebook/profiles/${raw.name}`,
   status: raw.status ?? 'active',
   lastUsedAt: raw.lastUsedAt ?? undefined,

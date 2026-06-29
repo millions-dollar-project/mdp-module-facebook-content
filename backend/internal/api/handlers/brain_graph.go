@@ -44,13 +44,15 @@ type BrainGraphStatsResponse struct {
 // Stats godoc
 // @Summary Aggregate counts over the Brain entity graph
 // @Tags brain
+// @Param account_id query string false "Per-account scope override (SHA-1 v5 UUID of kit-account name). Empty = default BrainScope."
 func (h *BrainGraphHandler) Stats(c *gin.Context) {
 	resp := BrainGraphStatsResponse{ByType: map[string]int64{}}
 	if h.brain == nil {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	res, err := h.brain.QueryGraph(c.Request.Context(), h.scope, nil, 0)
+	scope := withAccountScope(h.scope, c.Query("account_id"))
+	res, err := h.brain.QueryGraph(c.Request.Context(), scope, nil, 0)
 	if err != nil {
 		// Brain is best-effort. The UI shows zeros; we never want a
 		// transient brain outage to 5xx the dashboard.

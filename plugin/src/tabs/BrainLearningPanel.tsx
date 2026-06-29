@@ -12,10 +12,11 @@ import { applyBrainLearning } from '../lib/api/brain';
 
 export interface BrainLearningPanelProps {
   onApplied?: () => void;
+  accountId?: string;
 }
 
-export const BrainLearningPanel: React.FC<BrainLearningPanelProps> = ({ onApplied }) => {
-  const { signals, loading, reload } = useBrainLearning();
+export const BrainLearningPanel: React.FC<BrainLearningPanelProps> = ({ onApplied, accountId }) => {
+  const { signals, loading, reload } = useBrainLearning({ accountId });
   const toast = useToast();
   const [applying, setApplying] = useState<string | null>(null);
 

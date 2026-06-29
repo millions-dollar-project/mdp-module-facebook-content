@@ -87,7 +87,22 @@ type Recent7d struct {
 // the aggregated BrainOverview. FB-side errors are returned; Brain-side
 // errors are recorded as warnings so the dashboard still renders partial
 // data when the Brain MCP is slow or down.
+//
+// Uses the constructor-time `s.scope` (the default BrainScope). Callers
+// that need per-request scoping — typically the HTTP layer forwarding
+// `?account_id=` — should use GetOverviewWithScope instead.
 func (s *BrainStatsService) GetOverview(ctx context.Context) (*BrainOverview, error) {
+	return s.GetOverviewWithScope(ctx, s.scope)
+}
+
+// GetOverviewWithScope is the per-request-scope variant of GetOverview.
+// `scope` may be nil — the call falls back to `s.scope`. Per-request
+// overrides let one backend serve multiple account-scoped dashboards
+// without restarting the process.
+func (s *BrainStatsService) GetOverviewWithScope(ctx context.Context, scope map[string]string) (*BrainOverview, error) {
+	if scope == nil {
+		scope = s.scope
+	}
 	out := &BrainOverview{
 		Feeds:  map[string]int64{},
 		Drafts: map[string]int64{},
@@ -148,7 +163,7 @@ func (s *BrainStatsService) GetOverview(ctx context.Context) (*BrainOverview, er
 			recordWarning("learning_state: brain client not configured")
 			return
 		}
-		ls, err := s.brain.GetLearningState(brainCtx, s.scope, "", "")
+		ls, err := s.brain.GetLearningState(brainCtx, scope, "", "")
 		if err != nil {
 			recordWarning("learning_state: " + err.Error())
 			return
@@ -163,7 +178,7 @@ func (s *BrainStatsService) GetOverview(ctx context.Context) (*BrainOverview, er
 			recordWarning("graph_query: brain client not configured")
 			return
 		}
-		g, err := s.brain.QueryGraph(brainCtx, s.scope, nil, 0)
+		g, err := s.brain.QueryGraph(brainCtx, scope, nil, 0)
 		if err != nil {
 			recordWarning("graph_query: " + err.Error())
 			return

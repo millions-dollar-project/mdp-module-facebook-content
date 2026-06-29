@@ -13,14 +13,18 @@ import React from 'react';
 import { Card } from '../components';
 import { useBrainOverview } from '../hooks/useBrainOverview';
 
-export const BrainOverviewPanel: React.FC = () => {
-  const { data, loading, error } = useBrainOverview();
+export interface BrainOverviewPanelProps {
+  accountId?: string;
+}
+
+export const BrainOverviewPanel: React.FC<BrainOverviewPanelProps> = ({ accountId }) => {
+  const { data, loading, error } = useBrainOverview({ accountId });
 
   if (loading && !data) {
     return (
       <Card padded>
         <div style={{ color: 'var(--ds-text-muted)', fontSize: 13 }}>
-          Đang tải Brain overview…
+          Đang tải Brain overview{accountId ? ` cho account…` : '…'}
         </div>
       </Card>
     );

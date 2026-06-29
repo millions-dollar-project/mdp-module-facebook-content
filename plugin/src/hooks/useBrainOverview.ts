@@ -3,6 +3,9 @@
  *
  * Reuses the abort-on-refresh pattern from useBrainFeed. Polling is on
  * a fixed interval; each tick cancels the previous in-flight request.
+ *
+ * accountId is the SHA-1 v5 UUID of a kit account (forwarded as
+ * ?account_id=). When omitted the backend keeps its default scope.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchBrainOverview } from '../lib/api/brain';
@@ -11,10 +14,12 @@ import type { BrainOverview } from '../lib/types/brain';
 export interface UseBrainOverviewOptions {
   pollIntervalMs?: number; // default 30000
   enabled?: boolean; // default true
+  /** Per-account scope override (SHA-1 v5 UUID). */
+  accountId?: string;
 }
 
 export function useBrainOverview(opts: UseBrainOverviewOptions = {}) {
-  const { pollIntervalMs = 30000, enabled = true } = opts;
+  const { pollIntervalMs = 30000, enabled = true, accountId } = opts;
   const [data, setData] = useState<BrainOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +31,7 @@ export function useBrainOverview(opts: UseBrainOverviewOptions = {}) {
     abortRef.current = ctl;
     setLoading(true);
     try {
-      const res = await fetchBrainOverview(ctl.signal);
+      const res = await fetchBrainOverview(ctl.signal, accountId);
       if (ctl.signal.aborted) return;
       setData(res);
       setError(null);
@@ -36,7 +41,7 @@ export function useBrainOverview(opts: UseBrainOverviewOptions = {}) {
     } finally {
       if (!ctl.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [accountId]);
 
   useEffect(() => {
     if (!enabled) {
