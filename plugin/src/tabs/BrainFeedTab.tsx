@@ -17,6 +17,7 @@ import { useBrainFeed } from '../hooks/useBrainFeed';
 import { useBrainDelete } from '../hooks/useBrainDelete';
 import { useBrainGenerate } from '../hooks/useBrainGenerate';
 import { useFBAccounts } from '../hooks/useRepost';
+import { accountUUIDFromName } from '../lib/accountUUID';
 import { BrainFeedHeader, type BrainFeedFilterState } from './BrainFeedHeader';
 import { BrainFeedRow } from './BrainFeedRow';
 import { BrainFeedPagination } from './BrainFeedPagination';
@@ -41,15 +42,17 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
   // kit-account scoping: '' = no filter (legacy default behavior);
   // otherwise the SHA-1 v5 UUID of the chosen kit-account name. We
   // store the *name* in state so the dropdown label stays human-readable
-  // and the UUID is derived at fetch time (toFBAccount populates `uuid`
-  // for every entry from useFBAccounts).
+  // and derive the UUID directly from that name (synchronous, doesn't
+  // depend on useFBAccounts having resolved). The adapter also stamps
+  // `account.uuid` via `toFBAccount` once the list arrives — we prefer
+  // it as a sanity check, but `accountUUIDFromName(name)` is the
+  // authoritative source and matches the Go service byte-for-byte.
   const [selectedAccountName, setSelectedAccountName] = useState<string>('');
   const { data: accounts } = useFBAccounts();
-  const selectedAccount = useMemo(
-    () => accounts.find((a) => a.name === selectedAccountName) ?? null,
-    [accounts, selectedAccountName],
-  );
-  const accountUUID = selectedAccount?.uuid ?? '';
+  const accountUUID = useMemo(() => {
+    if (!selectedAccountName) return '';
+    return accountUUIDFromName(selectedAccountName);
+  }, [selectedAccountName]);
   const { data, loading, reload } = useBrainFeed({
     page,
     pageSize: 20,
