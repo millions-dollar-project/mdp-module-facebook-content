@@ -1,16 +1,27 @@
 /**
- * SchedulePostModal — opens after the user clicks "Tạo lịch đăng (N)"
- * on the Crawl tab. Shows N auto-filled time slots (default 4h spacing
- * from now) and a persona dropdown. On OK:
+ * SchedulePostModal — opens after a successful crawl.
  *
- *   1. POST /brain/generate-and-schedule with the N feed ids + persona +
- *      N slots.
- *   2. Backend generates a draft per slot via mdp-brain, schedules each
- *      for /me publishing, and binds kanban_job_id.
- *   3. We toast + fire `mdp:open-kanban` so the Kanban tab takes focus.
+ * The user just crawled N posts into AI brain. The modal asks:
  *
- * Per-slot failures stay on the modal so the user sees what went wrong
- * instead of a silent miss.
+ *   1. Persona (which AI voice to use)
+ *   2. How many drafts to CREATE (1..50, default 3) — the AI
+ *      generates this many NEW posts, not N drafts of existing
+ *      crawled content. The top-N newest feeds from brain_feeds
+ *      are used as style context.
+ *   3. Custom time per draft (no auto-spacing — the user picks
+ *      free-form, e.g. 10:01, 10:02, 14:30 on the same day).
+ *
+ * On submit:
+ *
+ *   1. POST /brain/generate-and-schedule with numDrafts + persona +
+ *      accountId + N slots.
+ *   2. Backend generates K drafts, schedules each at the matching
+ *      slot, binds kanban_job_id.
+ *   3. We toast + fire `mdp:open-kanban` so the Kanban tab takes
+ *      focus.
+ *
+ * Per-slot failures stay on the modal so the user sees what went
+ * wrong instead of a silent miss.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '../components/Modal';
@@ -22,7 +33,8 @@ import { scheduleApi, type GenerateAndScheduleResponse } from '../lib/api/schedu
 export interface SchedulePostModalProps {
   open: boolean;
   onClose: () => void;
-  feedIds: string[];
+  /** How many new drafts to ask the AI for. 1..50. */
+  numDrafts: number;
   /** SHA-1 v5 UUID of the kit account (resolved from useFBAccounts[0]). */
   accountId: string;
   onCreated?: (res: GenerateAndScheduleResponse) => void;
@@ -34,7 +46,6 @@ interface Slot {
 }
 
 const HOUR = 60 * 60 * 1000;
-const DEFAULT_SPACING_MS = 4 * HOUR;
 
 /** Build a YYYY-MM-DDTHH:mm string in local time from a Date. */
 function toLocalInput(d: Date): string {
@@ -42,10 +53,17 @@ function toLocalInput(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Default first-slot time = +1h from now (so it's always in the
+ *  future regardless of timezone quirks). Subsequent slots default
+ *  to empty — the user types whatever they want. */
+function defaultFirstSlot(): string {
+  return toLocalInput(new Date(Date.now() + HOUR));
+}
+
 export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
   open,
   onClose,
-  feedIds,
+  numDrafts,
   accountId,
   onCreated,
 }) => {
@@ -56,19 +74,20 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
   const [failures, setFailures] = useState<GenerateAndScheduleResponse['failures']>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset state each time the modal opens.
+  // Reset state each time the modal opens or the requested count
+  // changes. Build N empty slot rows (all but the first start blank
+  // so the user types custom times — we do NOT auto-space).
   useEffect(() => {
     if (!open) return;
-    const base = Date.now() + DEFAULT_SPACING_MS; // first slot = +4h
-    setSlots(
-      feedIds.map((_, i) => ({
-        localDateTime: toLocalInput(new Date(base + i * DEFAULT_SPACING_MS)),
-      }))
-    );
+    const n = Math.max(1, Math.min(50, numDrafts));
+    const next: Slot[] = Array.from({ length: n }, (_, i) => ({
+      localDateTime: i === 0 ? defaultFirstSlot() : '',
+    }));
+    setSlots(next);
     setPersonaId(personas[0]?.id ?? '');
     setFailures([]);
     setError(null);
-  }, [open, feedIds.length, personas]);
+  }, [open, numDrafts, personas]);
 
   const updateSlot = useCallback((idx: number, value: string) => {
     setSlots((prev) => prev.map((s, i) => (i === idx ? { localDateTime: value } : s)));
@@ -84,8 +103,8 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
   );
 
   const submit = useCallback(async () => {
-    if (slots.length === 0 || feedIds.length === 0) {
-      setError('Cần ít nhất 1 bài + 1 khung giờ');
+    if (slots.length === 0) {
+      setError('Cần ít nhất 1 khung giờ');
       return;
     }
     if (!personaId) {
@@ -96,15 +115,37 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
       setError('Chưa chọn kit account');
       return;
     }
+    // Validate every slot has a parseable time. The backend rejects
+    // past times with 400, but we catch the obvious "user left the
+    // field blank" case here so the user doesn't have to wait for
+    // the round trip.
+    const parsedSlots: { scheduledAt: string }[] = [];
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i];
+      if (!s.localDateTime) {
+        setError(`Ô giờ #${i + 1} đang trống`);
+        return;
+      }
+      const d = new Date(s.localDateTime);
+      if (Number.isNaN(d.getTime())) {
+        setError(`Ô giờ #${i + 1} không hợp lệ`);
+        return;
+      }
+      if (d.getTime() <= Date.now()) {
+        setError(`Ô giờ #${i + 1} đã qua`);
+        return;
+      }
+      parsedSlots.push({ scheduledAt: d.toISOString() });
+    }
     setSubmitting(true);
     setError(null);
     setFailures([]);
     try {
       const res = await scheduleApi.generateAndSchedule({
-        feedIds,
+        numDrafts: parsedSlots.length,
         personaId,
         accountId,
-        slots: slots.map((s) => ({ scheduledAt: new Date(s.localDateTime).toISOString() })),
+        slots: parsedSlots,
       });
       if (res.failures?.length) {
         setFailures(res.failures);
@@ -119,13 +160,13 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
     } finally {
       setSubmitting(false);
     }
-  }, [slots, feedIds, personaId, accountId, onCreated, onClose]);
+  }, [slots, personaId, accountId, onCreated, onClose]);
 
   return (
     <Modal
       open={open}
       onClose={submitting ? () => undefined : onClose}
-      title={`Tạo lịch đăng (${feedIds.length})`}
+      title="Tạo bài từ crawl"
       size="lg"
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -133,7 +174,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
             Huỷ
           </Button>
           <Button onClick={submit} disabled={submitting || slots.length === 0}>
-            {submitting ? 'Đang lên lịch…' : 'Lên lịch'}
+            {submitting ? 'Đang tạo bài…' : `Tạo ${slots.length} bài`}
           </Button>
         </div>
       }
@@ -153,9 +194,16 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
           />
         </div>
 
+        <div className="schedule-modal__count">
+          <span>
+            Số lượng bài: <strong>{slots.length}</strong> (top {slots.length} feeds
+            mới nhất sẽ làm style context cho AI)
+          </span>
+        </div>
+
         <div className="schedule-modal__slots">
           <div className="schedule-modal__slots-header">
-            Khung giờ đăng (cách nhau 4h, có thể chỉnh)
+            Khung giờ đăng (tự nhập — không tự động cách nhau)
           </div>
           <ul className="schedule-modal__slot-list">
             {slots.map((s, i) => (
@@ -167,6 +215,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
                   value={s.localDateTime}
                   onChange={(e) => updateSlot(i, e.target.value)}
                   disabled={submitting}
+                  placeholder="10:01 14/07/2026"
                 />
               </li>
             ))}
@@ -179,7 +228,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
             <ul>
               {failures.map((f, i) => (
                 <li key={i}>
-                  {f.feedId} — {f.stage}: {f.message}
+                  Ô #{f.index + 1} — {f.stage}: {f.message}
                 </li>
               ))}
             </ul>

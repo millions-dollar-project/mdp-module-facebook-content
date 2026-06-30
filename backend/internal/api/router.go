@@ -282,8 +282,13 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		v1.POST("/reschedule-scheduled-post", schedH.Reschedule)
 		v1.POST("/cancel-schedule", schedH.Cancel)
 
-		// Brain → schedule batch (crawl → generate → schedule for /me)
+		// Brain → schedule batch (crawl → generate → schedule for /me).
+		// brainSvc implements both the generator (Generate) and the
+		// context-feeds lister (ListNewest); we pass it twice under
+		// different interface types so the handler can stub each
+		// side independently in tests.
 		brainScheduleH := handlers.NewBrainScheduleHandler(
+			brainSvc,
 			brainSvc,
 			schedSvc,
 			brainDraftRepo,

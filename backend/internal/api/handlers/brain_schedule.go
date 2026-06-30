@@ -10,10 +10,37 @@ import (
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
 )
 
+// MaxContextFeeds caps how many of the newest brain_feeds rows the
+// handler will pull as style context before generating drafts. 50 is
+// plenty for "10 crawled posts → 3 drafts" use cases and bounds the
+// upstream AI cost if a user has been crawling for a while.
+const MaxContextFeeds = 50
+
+// MaxDraftsPerRequest is the hard upper bound for the `numDrafts`
+// field. 50 matches MaxContextFeeds; you cannot ask for more drafts
+// than we have context feeds (and there is no value in doing so).
+const MaxDraftsPerRequest = 50
+
+// MinDraftsPerRequest is the lower bound for `numDrafts`. A user must
+// always ask for at least one draft — submitting 0 is almost always
+// a UI bug and silently no-ops, which is worse than a 400.
+const MinDraftsPerRequest = 1
+
 // BrainScheduleGenerator is the surface of BrainFeedService.Generate
 // the batch endpoint needs.
 type BrainScheduleGenerator interface {
 	Generate(ctx context.Context, feedIDs []string, personaID string) ([]models.BrainDraftRow, []models.GenerateFailure, error)
+}
+
+// BrainFeedContextLister is the surface of BrainFeedService.ListNewest
+// the batch endpoint needs to pull the latest crawled feeds as style
+// context for the AI. We deliberately keep this narrow (accountId +
+// limit) so the unit test can stub it with a small in-memory map.
+type BrainFeedContextLister interface {
+	// ListNewest returns up to `limit` brain_feeds rows ordered by
+	// created_at DESC. Used as the style-context input for the
+	// AI draft generator.
+	ListNewest(ctx context.Context, accountID string, limit int) ([]models.BrainFeedRow, error)
 }
 
 // PersonalScheduler is the surface of Scheduler.SchedulePersonal
@@ -37,28 +64,55 @@ type KitAccountResolver interface {
 	LookupByUUID(ctx context.Context, id string) (exists bool, err error)
 }
 
-// BrainScheduleHandler owns POST /brain/generate-and-schedule. The
-// shape: pick a list of feed ids + a persona + a parallel list of
-// scheduled times; the handler runs BrainFeedService.Generate, then
-// for each (feed, slot) pair inserts a scheduled_posts row with
-// post_type='personal' and binds the resulting draft row to it via
-// kanban_job_id. Per-slot failures are reported in the response
-// without aborting the whole batch.
+// BrainScheduleHandler owns POST /brain/generate-and-schedule.
+//
+// Flow (confirmed with user 2026-06-30):
+//   1. User has crawled N posts (already in brain_feeds — the data
+//      is the style/context input, NOT the output).
+//   2. User opens the popup, picks a persona, chooses how many
+//      drafts to create (numDrafts, 1..50) and provides one custom
+//      scheduled time per draft. Times are fully free-form (no
+//      auto-spacing) — the user might pick 10:01, 10:02, 14:30
+//      depending on their audience.
+//   3. Handler pulls the top-N newest feeds (up to MaxContextFeeds)
+//      as context and asks BrainFeedService.Generate to produce
+//      drafts from each.
+//   4. We keep the first numDrafts drafts (one per slot) and
+//      schedule them via Scheduler.SchedulePersonal.
+//   5. BrainDraftRepo.MarkPushedRow binds kanban_job_id for the
+//      Kanban tab.
+//
+// Per-slot failures (draft gen failed or schedule insert failed)
+// are reported in `failures` rather than aborting the batch.
 type BrainScheduleHandler struct {
 	gen      BrainScheduleGenerator
+	lister   BrainFeedContextLister
 	sched    PersonalScheduler
 	binder   BrainDraftBinder
 	accounts KitAccountResolver
 }
 
-// NewBrainScheduleHandler wires the four deps. Any may be nil — the
-// handler returns 503 when called on a nil service.
-func NewBrainScheduleHandler(gen BrainScheduleGenerator, sched PersonalScheduler, binder BrainDraftBinder, accounts KitAccountResolver) *BrainScheduleHandler {
-	return &BrainScheduleHandler{gen: gen, sched: sched, binder: binder, accounts: accounts}
+// NewBrainScheduleHandler wires the five deps. lister and binder may
+// be nil in degraded test setups; the handler will return 503 when
+// called without them.
+func NewBrainScheduleHandler(
+	gen BrainScheduleGenerator,
+	lister BrainFeedContextLister,
+	sched PersonalScheduler,
+	binder BrainDraftBinder,
+	accounts KitAccountResolver,
+) *BrainScheduleHandler {
+	return &BrainScheduleHandler{gen: gen, lister: lister, sched: sched, binder: binder, accounts: accounts}
 }
 
 type generateAndScheduleReq struct {
-	FeedIDs   []string  `json:"feedIds"   binding:"required"`
+	// NumDrafts is the number of NEW drafts to produce. The handler
+	// pulls the top-N newest feeds from brain_feeds (as style
+	// context) but the OUTPUT is exactly numDrafts scheduled posts.
+	// We deliberately do NOT use the `required` binding tag — gin's
+	// required would reject 0 with a generic "field required" error
+	// and we want a specific "out_of_range" code instead.
+	NumDrafts int       `json:"numDrafts"`
 	PersonaID string    `json:"personaId" binding:"required"`
 	AccountID string    `json:"accountId" binding:"required"`
 	Slots     []slotDTO `json:"slots"     binding:"required"`
@@ -69,33 +123,32 @@ type slotDTO struct {
 }
 
 type draftResult struct {
-	FeedID string `json:"feedId"`
 	DraftID string `json:"draftId"`
+	FeedID  string `json:"feedId"`
 	Status  string `json:"status"`
 }
 
 type scheduleResult struct {
-	FeedID          string    `json:"feedId"`
 	ScheduledPostID string    `json:"scheduledPostId"`
 	ScheduledAt     time.Time `json:"scheduledAt"`
 }
 
 type failureResult struct {
-	FeedID  string `json:"feedId"`
-	Stage   string `json:"stage"`  // "draft" or "schedule"
+	Index   int    `json:"index"`             // 0-based index in the request's slots array
+	Stage   string `json:"stage"`             // "draft" or "schedule"
 	Message string `json:"message"`
 }
 
 // GenerateAndSchedule godoc
-// @Summary Generate an AI draft per feed id and schedule each one
-// @Description Runs BrainFeedService.Generate on the provided feed ids
-// @Description (using the supplied persona) and inserts one personal-profile
-// @Description scheduled_posts row per slot. Per-feed failures (either at the
-// @Description draft step or the schedule step) are returned in `failures`
-// @Description rather than aborting the batch.
+// @Summary Generate numDrafts AI drafts and schedule them at custom times
+// @Description Pulls the newest crawled feeds from brain_feeds as style
+// @Description context, generates NumDrafts drafts via mdp-brain, then
+// @Description schedules each at the user-provided scheduledAt time
+// @Description (one per slot, no auto-spacing). Per-slot failures are
+// @Description reported in `failures`.
 // @Tags brain
 func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
-	if h.gen == nil || h.sched == nil || h.accounts == nil {
+	if h.gen == nil || h.lister == nil || h.sched == nil || h.accounts == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"code":    "service_unavailable",
 			"message": "brain schedule service not configured",
@@ -107,17 +160,17 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "bad_request", "message": err.Error()})
 		return
 	}
-	if len(req.FeedIDs) == 0 || len(req.Slots) == 0 {
+	if req.NumDrafts < MinDraftsPerRequest || req.NumDrafts > MaxDraftsPerRequest {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "feed_ids_and_slots_required",
-			"message": "feedIds and slots are required and must be non-empty",
+			"code":    "num_drafts_out_of_range",
+			"message": "numDrafts must be between 1 and 50",
 		})
 		return
 	}
-	if len(req.FeedIDs) != len(req.Slots) {
+	if len(req.Slots) != req.NumDrafts {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "feed_slot_mismatch",
-			"message": "feedIds and slots must have the same length",
+			"code":    "num_drafts_slot_mismatch",
+			"message": "slots length must equal numDrafts (one custom time per draft)",
 		})
 		return
 	}
@@ -134,6 +187,19 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 			"message": "accountId is required",
 		})
 		return
+	}
+	// Reject past-time slots upfront. We do this here (not in the
+	// service) so the user sees a single clear 400 instead of N
+	// "schedule_failed" entries in `failures`.
+	now := time.Now()
+	for i, s := range req.Slots {
+		if s.ScheduledAt.Before(now) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code":    "slot_in_past",
+				"message": "slot[" + itoa(i) + "] scheduledAt is in the past",
+			})
+			return
+		}
 	}
 	// Pre-flight the kit account so the caller gets a clean 404
 	// instead of N schedule failures that all share the same root
@@ -155,13 +221,40 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	// Step 1: generate drafts. The handler ignores the per-draft
-	// content for now and re-derives it from the feed id ↔ draft
-	// mapping. A failure here means no draft was produced and we
-	// still insert a placeholder schedule row so the Kanban shows
-	// the slot with a "brain-blocked" content so the user sees
-	// what went wrong instead of a silent miss.
-	drafts, genFailures, err := h.gen.Generate(ctx, req.FeedIDs, req.PersonaID)
+
+	// Step 1: pull newest feeds as style context. We always cap at
+	// MaxContextFeeds (50) and never more than NumDrafts — there is
+	// no point feeding 50 context feeds to the AI if the user only
+	// asked for 3 drafts.
+	contextLimit := req.NumDrafts
+	if contextLimit > MaxContextFeeds {
+		contextLimit = MaxContextFeeds
+	}
+	feeds, err := h.lister.ListNewest(ctx, req.AccountID, contextLimit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "list_feeds_failed",
+			"message": err.Error(),
+		})
+		return
+	}
+	if len(feeds) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "no_crawled_feeds",
+			"message": "no crawled feeds available — crawl at least 1 post first",
+		})
+		return
+	}
+	contextFeedIDs := make([]string, 0, len(feeds))
+	for _, f := range feeds {
+		contextFeedIDs = append(contextFeedIDs, f.ID)
+	}
+
+	// Step 2: ask the AI to generate drafts. We always request up to
+	// NumDrafts drafts (one per context feed, up to contextLimit).
+	// If the AI returns fewer (e.g. some feeds blocked), we surface
+	// per-slot failures for the gaps.
+	drafts, genFailures, err := h.gen.Generate(ctx, contextFeedIDs, req.PersonaID)
 	if err != nil && len(drafts) == 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "generate_failed",
@@ -170,13 +263,8 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 		return
 	}
 
-	draftsByFeed := make(map[string]models.BrainDraftRow, len(drafts))
-	for _, d := range drafts {
-		draftsByFeed[d.FeedID] = d
-	}
-
-	// Per-feed GenerateFailure list (kept separately from
-	// genFailures because we want a stable FeedID-indexed view).
+	// Per-feed GenerateFailure list keyed by feed id so we can map
+	// back to slots.
 	genFailureByFeed := make(map[string]string, len(genFailures))
 	for _, f := range genFailures {
 		genFailureByFeed[f.FeedID] = f.Err
@@ -187,55 +275,70 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 		outSchedules []scheduleResult
 		outFailures  []failureResult
 	)
-	for i, feedID := range req.FeedIDs {
-		slot := req.Slots[i].ScheduledAt
-		draft, hasDraft := draftsByFeed[feedID]
-		if !hasDraft {
-			msg := "brain generate returned no draft for this feed"
-			if m, ok := genFailureByFeed[feedID]; ok && m != "" {
-				msg = m
+	// We schedule drafts in the order they come back from Generate.
+	// If the AI produces more drafts than numDrafts (unlikely but
+	// possible) we cap at numDrafts. If it produces fewer, the
+	// remaining slots get a placeholder schedule + failure entry.
+	drafts = trimDrafts(drafts, req.NumDrafts)
+
+	for i, slot := range req.Slots {
+		var (
+			content  string
+			draftID  string
+			draftSt  string
+			hasDraft bool
+		)
+		if i < len(drafts) {
+			d := drafts[i]
+			content = d.Content
+			draftID = d.ID
+			draftSt = d.Status
+			hasDraft = true
+		} else {
+			// No draft available for this slot. Use a
+			// placeholder so the Kanban still shows the row
+			// with a clear "brain-blocked" marker.
+			msg := "brain generate did not return a draft for this slot"
+			if len(genFailureByFeed) > 0 {
+				// Pick the first failure's message —
+				// users get the most recent error from
+				// the upstream AI.
+				for _, m := range genFailureByFeed {
+					msg = m
+					break
+				}
 			}
-			// Still insert a placeholder schedule so the slot
-			// shows up on the Kanban. Content starts with the
-			// brain-blocked marker the UI greys out.
-			placeholder := "# brain-blocked: " + msg
-			row, sErr := h.sched.SchedulePersonal(ctx, req.AccountID, placeholder, slot, nil)
-			if sErr != nil {
-				outFailures = append(outFailures, failureResult{
-					FeedID: feedID, Stage: "schedule", Message: sErr.Error(),
-				})
-				continue
-			}
-			outSchedules = append(outSchedules, scheduleResult{
-				FeedID: feedID, ScheduledPostID: row.ID, ScheduledAt: row.ScheduledAt,
-			})
-			outFailures = append(outFailures, failureResult{
-				FeedID: feedID, Stage: "draft", Message: msg,
-			})
-			continue
+			content = "# brain-blocked: " + msg
 		}
-		// Happy path: schedule the draft content and bind it.
-		row, sErr := h.sched.SchedulePersonal(ctx, req.AccountID, draft.Content, slot, nil)
+
+		row, sErr := h.sched.SchedulePersonal(ctx, req.AccountID, content, slot.ScheduledAt, nil)
 		if sErr != nil {
 			outFailures = append(outFailures, failureResult{
-				FeedID: feedID, Stage: "schedule", Message: sErr.Error(),
+				Index: i, Stage: "schedule", Message: sErr.Error(),
 			})
 			continue
 		}
-		if h.binder != nil {
-			if bErr := h.binder.MarkPushedRow(ctx, draft.ID, row.ID); bErr != nil {
-				outFailures = append(outFailures, failureResult{
-					FeedID: feedID, Stage: "schedule",
-					Message: "failed to bind kanban_job_id: " + bErr.Error(),
-				})
-			}
-		}
-		outDrafts = append(outDrafts, draftResult{
-			FeedID: feedID, DraftID: draft.ID, Status: draft.Status,
-		})
 		outSchedules = append(outSchedules, scheduleResult{
-			FeedID: feedID, ScheduledPostID: row.ID, ScheduledAt: row.ScheduledAt,
+			ScheduledPostID: row.ID, ScheduledAt: row.ScheduledAt,
 		})
+		if hasDraft {
+			outDrafts = append(outDrafts, draftResult{
+				DraftID: draftID, FeedID: drafts[i].FeedID, Status: draftSt,
+			})
+			if h.binder != nil {
+				if bErr := h.binder.MarkPushedRow(ctx, draftID, row.ID); bErr != nil {
+					outFailures = append(outFailures, failureResult{
+						Index:   i,
+						Stage:   "schedule",
+						Message: "failed to bind kanban_job_id: " + bErr.Error(),
+					})
+				}
+			}
+		} else {
+			outFailures = append(outFailures, failureResult{
+				Index: i, Stage: "draft", Message: content,
+			})
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -243,4 +346,38 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 		"schedules": outSchedules,
 		"failures":  outFailures,
 	})
+}
+
+// trimDrafts returns at most `n` drafts, preserving the original
+// order. Defensive — Generate is supposed to return len(feedIDs)
+// drafts but in degraded paths it might return more.
+func trimDrafts(drafts []models.BrainDraftRow, n int) []models.BrainDraftRow {
+	if n <= 0 || len(drafts) <= n {
+		return drafts
+	}
+	return drafts[:n]
+}
+
+// itoa is a tiny stdlib-free int → string helper so we don't pull
+// strconv just for the one error message above.
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	var buf [20]byte
+	pos := len(buf)
+	for i > 0 {
+		pos--
+		buf[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		pos--
+		buf[pos] = '-'
+	}
+	return string(buf[pos:])
 }

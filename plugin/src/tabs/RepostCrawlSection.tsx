@@ -161,12 +161,39 @@ export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
   });
   const [accShowAdvanced, setAccShowAdvanced] = React.useState(false);
   const [accSubmitting, setAccSubmitting] = React.useState(false);
-  // SchedulePostModal — opens when the user clicks "Tạo lịch đăng (N)"
-  // in the card-list header. The modal lists every selected feed id and
-  // N auto-filled time slots, then posts to /brain/generate-and-schedule.
+  // SchedulePostModal — opens either automatically when a crawl +
+  // auto-ingest finishes, or manually when the user clicks the
+  // "Tạo bài từ crawl" button. The modal asks for persona +
+  // numDrafts + custom time slots (no auto-spacing) and posts to
+  // /brain/generate-and-schedule.
   const [scheduleModalOpen, setScheduleModalOpen] = React.useState(false);
+  // Track the most recent successful ingest count so we only auto-open
+  // the modal when the count TRANSITIONS from 0 → N. Without this guard
+  // any re-render while lastIngestedCount > 0 would re-trigger the
+  // modal and trap the user in a popup loop.
+  const lastSeenIngestCountRef = React.useRef<number>(0);
   const [accLoginStatus, setAccLoginStatus] = React.useState<string>('');
   const [accLoginErr, setAccLoginErr] = React.useState<string>('');
+
+  // Auto-open SchedulePostModal after a successful crawl + ingest.
+  // Fires when:
+  //   1. lastIngestedCount just went from 0 to N (positive count we
+  //      haven't seen yet), AND
+  //   2. We're not currently loading (the crawl call finished), AND
+  //   3. The user has at least one kit-account (so the modal has a
+  //      valid accountId to send).
+  React.useEffect(() => {
+    if (loading) return;
+    if (lastIngestedCount <= 0) {
+      // Reset the ref so the next successful crawl can fire.
+      lastSeenIngestCountRef.current = 0;
+      return;
+    }
+    if (lastSeenIngestCountRef.current >= lastIngestedCount) return;
+    if (!fbAccounts || fbAccounts.length === 0) return;
+    lastSeenIngestCountRef.current = lastIngestedCount;
+    setScheduleModalOpen(true);
+  }, [loading, lastIngestedCount, fbAccounts]);
 
   // Tên mặc định cho account mới: acc-NNN+1 với N = max trong tên acc-NNN hiện có.
   const defaultAccName = React.useMemo(() => {
@@ -602,17 +629,13 @@ export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
     setEditingContent('');
   };
 
-  const handleScheduleSelected = () => {
-    if (selected.size === 0) {
-      toast.warning('Chọn ít nhất 1 bài để lên lịch');
-      return;
-    }
+  const handleOpenScheduleModal = React.useCallback(() => {
     if (!fbAccounts || fbAccounts.length === 0) {
       toast.warning('Cần ít nhất 1 kit-account để lên lịch');
       return;
     }
     setScheduleModalOpen(true);
-  };
+  }, [fbAccounts, toast]);
 
   const handleCloseScheduleModal = React.useCallback(() => {
     setScheduleModalOpen(false);
@@ -1024,25 +1047,16 @@ export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={selected.size === sortedPosts.length && sortedPosts.length > 0}
-                  ref={(el) => {
-                    if (el) el.indeterminate = selected.size > 0 && selected.size < sortedPosts.length;
-                  }}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelected(new Set(sortedPosts.map((p) => p.id)));
-                    } else {
-                      setSelected(new Set());
-                    }
-                  }}
-                />
-                Chọn tất cả
-              </label>
-              <Button onClick={handleScheduleSelected} disabled={selected.size === 0}>
-                Tạo lịch đăng ({selected.size})
+              <Button
+                onClick={handleOpenScheduleModal}
+                disabled={!fbAccounts || fbAccounts.length === 0}
+                title={
+                  !fbAccounts || fbAccounts.length === 0
+                    ? 'Cần ít nhất 1 kit-account'
+                    : 'Tạo bài mới từ dữ liệu crawl đã lưu trong AI brain'
+                }
+              >
+                Tạo bài từ crawl
               </Button>
             </div>
           </div>
@@ -1118,17 +1132,19 @@ export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
       )}
 
       {/*
-        SchedulePostModal — opens when the user clicks "Tạo lịch đăng (N)".
-        We pass every selected feed id (sorted in selection order so the
-        generated drafts align with the visible cards), the first
-        kit-account's SHA-1 v5 UUID (the only account the Worker will
-        publish to for v1), and an onCreated callback that clears the
-        selection so the cards don't linger as "checked".
+        SchedulePostModal — opens automatically after a successful
+        crawl + ingest, or manually when the user clicks the
+        "Tạo bài từ crawl" button. The modal asks for persona +
+        numDrafts + N custom time slots (no auto-spacing) and the
+        backend picks the top numDrafts newest feeds as style
+        context for the AI. accountId is the first kit-account's
+        SHA-1 v5 UUID (the only account the Worker publishes to
+        in v1).
       */}
       <SchedulePostModal
         open={scheduleModalOpen}
         onClose={handleCloseScheduleModal}
-        feedIds={sortedPosts.filter((p) => selected.has(p.id)).map((p) => p.id)}
+        numDrafts={3}
         accountId={fbAccounts?.[0]?.uuid ?? ''}
         onCreated={handleScheduleCreated}
       />

@@ -235,6 +235,25 @@ func (s *BrainFeedService) Delete(ctx context.Context, id string) error {
 	return s.store.Delete(ctx, id)
 }
 
+// ListNewest returns the `limit` most-recently-created brain_feeds
+// rows scoped to the given account. Used by the
+// `/brain/generate-and-schedule` batch endpoint as style context
+// for the AI generator. The account scoping follows the same
+// UUID-vs-raw-name rules as List; a UUID that doesn't resolve to a
+// kit account returns an empty slice (same "phantom scope" guard).
+//
+// Limit is clamped to [1, 50] to keep the AI input bounded.
+func (s *BrainFeedService) ListNewest(ctx context.Context, accountID string, limit int) ([]models.BrainFeedRow, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	rows, _, err := s.List(ctx, repo.BrainFeedFilter{}, accountID, 1, limit)
+	return rows, err
+}
+
 // Generate fetches each feed, calls mcp-brain's PrepareContentInput, persists
 // a brain_draft row, and updates the feed's status. Returns per-feed drafts
 // and failures (partial success).

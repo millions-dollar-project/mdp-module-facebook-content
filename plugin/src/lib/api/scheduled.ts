@@ -3,10 +3,13 @@
  *
  * Three endpoints do the heavy lifting:
  *
- *  - POST /brain/generate-and-schedule: takes N feed ids + a persona +
- *    N time slots; the backend runs mdp-brain.Generate, inserts N
- *    scheduled_posts rows (post_type='personal'), and binds each draft
- *    row to its schedule via kanban_job_id.
+ *  - POST /brain/generate-and-schedule: takes numDrafts + a persona +
+ *    N custom time slots; the backend pulls the top-N newest crawled
+ *    feeds from brain_feeds as style context, runs mdp-brain.Generate
+ *    on them, picks the first numDrafts drafts, and inserts N
+ *    scheduled_posts rows (post_type='personal') bound to each draft
+ *    via kanban_job_id. The user picks the slot times freely — no
+ *    auto-spacing.
  *
  *  - GET /scheduled-posts?status=…&accountId=…: enriched list for the
  *    Kanban tab (joins brain_drafts + brain_feeds).
@@ -59,21 +62,40 @@ export interface ScheduleRow {
 }
 
 export interface GenerateAndScheduleRequest {
-  feedIds: string[];
+  /**
+   * Number of NEW drafts to produce. The handler pulls the top
+   * numDrafts newest feeds from brain_feeds as style context for
+   * the AI, but the OUTPUT is exactly numDrafts scheduled posts.
+   * Range: 1..50.
+   */
+  numDrafts: number;
   personaId: string;
   /** SHA-1 v5 UUID of the kit account that owns the personal /me posts. */
   accountId: string;
-  slots: { scheduledAt: string /* ISO */ }[];
+  /**
+   * One custom scheduled time per draft. Times are fully free-form
+   * (no auto-spacing) — the user might pick 10:01, 10:02, 14:30 on
+   * the same day. Length MUST equal numDrafts.
+   */
+  slots: { scheduledAt: string /* ISO 8601 */ }[];
 }
 
 export interface GenerateAndScheduleResponse {
   drafts: { feedId: string; draftId: string; status: string }[];
   schedules: {
-    feedId: string;
     scheduledPostId: string;
     scheduledAt: string;
   }[];
-  failures: { feedId: string; stage: 'draft' | 'schedule'; message: string }[];
+  /**
+   * Per-slot failures. The `index` field is the 0-based position
+   * in the request's slots array so the UI can show "slot #3 failed"
+   * to the user.
+   */
+  failures: {
+    index: number;
+    stage: 'draft' | 'schedule';
+    message: string;
+  }[];
 }
 
 export interface ListScheduledParams {
@@ -87,7 +109,11 @@ export interface ListScheduledParams {
 }
 
 export const scheduleApi = {
-  /** Generate a draft per feed id and schedule each for /me publishing. */
+  /**
+   * Generate numDrafts AI drafts from the user's crawled feeds and
+   * schedule each one at a custom time for /me (personal profile)
+   * publishing. The number of slots passed MUST equal numDrafts.
+   */
   generateAndSchedule(req: GenerateAndScheduleRequest) {
     return fbFetch<GenerateAndScheduleResponse>('brain/generate-and-schedule', {
       method: 'POST',
