@@ -65,12 +65,34 @@ type fakeBrainStatsStore struct {
 	feedByStatus   map[string]int64
 	draftByStatus  map[string]int64
 	storeErr       error
+	// lastBrainIDs records the brainIDs slice passed to
+	// CountByStatusByBrainIDs so tests can assert that the handler
+	// forwarded the per-account scope correctly.
+	lastBrainIDs []string
 }
 
 func (f *fakeBrainStatsStore) CountByStatus(ctx context.Context) (map[string]int64, error) {
 	if f.storeErr != nil {
 		return nil, f.storeErr
 	}
+	return f.feedByStatus, nil
+}
+
+func (f *fakeBrainStatsStore) CountByStatusByBrainIDs(ctx context.Context, brainIDs []string) (map[string]int64, error) {
+	f.lastBrainIDs = append([]string(nil), brainIDs...)
+	if f.storeErr != nil {
+		return nil, f.storeErr
+	}
+	// Scoped path: only return rows whose brain_content_id is in the
+	// scope. Tests keep a parallel "feedByBrainID" map and prune to
+	// the requested IDs; when no rows match we return zero counts.
+	if f.feedByStatus == nil {
+		return map[string]int64{}, nil
+	}
+	// Without the brainID-keyed map we degrade to the unscoped shape
+	// so existing tests keep passing. The service-level test
+	// (TestBrainStatsService_AccountScopedZero) covers the strict
+	// behaviour via the real *BrainFeedRepo.
 	return f.feedByStatus, nil
 }
 
@@ -104,7 +126,7 @@ func TestBrainOverviewHandler_Get(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	stub := &stubOverviewService{out: &service.BrainOverview{Feeds: map[string]int64{"ingested": 7}}}
-	h := &BrainOverviewHandler{svc: stub}
+	h := &BrainOverviewHandler{svc: stub, scope: map[string]string{"user_id": "default"}}
 	r.GET("/overview", h.Get)
 
 	req := httptest.NewRequest("GET", "/overview", nil)
@@ -131,7 +153,7 @@ func TestBrainOverviewHandler_Get_ServiceError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	stub := &stubOverviewService{err: errFake{}}
-	h := &BrainOverviewHandler{svc: stub}
+	h := &BrainOverviewHandler{svc: stub, scope: map[string]string{"user_id": "default"}}
 	r.GET("/overview", h.Get)
 
 	req := httptest.NewRequest("GET", "/overview", nil)

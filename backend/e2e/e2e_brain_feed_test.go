@@ -139,7 +139,7 @@ func TestE2E_BrainFeed_IngestListGenerate(t *testing.T) {
 	defer bc.Close()
 
 	store := newMemStore()
-	svc := service.NewBrainFeedService(store, store, bc, 5)
+	svc := service.NewBrainFeedService(store, store, bc, nil, 5)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

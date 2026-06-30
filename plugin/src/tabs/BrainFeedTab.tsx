@@ -39,16 +39,22 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [peekId, setPeekId] = useState<string | null>(null);
   const [dashboardTick, setDashboardTick] = useState(0);
-  // kit-account scoping: '' = no filter (legacy default behavior);
-  // otherwise the SHA-1 v5 UUID of the chosen kit-account name. We
-  // store the *name* in state so the dropdown label stays human-readable
-  // and derive the UUID directly from that name (synchronous, doesn't
-  // depend on useFBAccounts having resolved). The adapter also stamps
-  // `account.uuid` via `toFBAccount` once the list arrives — we prefer
-  // it as a sanity check, but `accountUUIDFromName(name)` is the
-  // authoritative source and matches the Go service byte-for-byte.
+  // kit-account scoping: dropdown lists every kit-account; the SHA-1 v5
+  // UUID of the chosen name is what we forward to the backend. We store
+  // the *name* in state so the dropdown label stays human-readable and
+  // derive the UUID directly from that name (synchronous, doesn't depend
+  // on useFBAccounts having resolved). `accountUUIDFromName(name)` is
+  // the authoritative source and matches the Go service byte-for-byte.
   const [selectedAccountName, setSelectedAccountName] = useState<string>('');
   const { data: accounts } = useFBAccounts();
+  // Auto-select the first kit-account once the list arrives so the
+  // scope is always a concrete UUID (no more "all accounts" escape
+  // hatch — every dashboard query is account-bound).
+  useEffect(() => {
+    if (!selectedAccountName && accounts && accounts.length > 0) {
+      setSelectedAccountName(accounts[0].name);
+    }
+  }, [accounts, selectedAccountName]);
   const accountUUID = useMemo(() => {
     if (!selectedAccountName) return '';
     return accountUUIDFromName(selectedAccountName);
@@ -177,7 +183,6 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
             className="fb-select"
             style={{ minWidth: 240 }}
           >
-            <option value="">Tất cả tài khoản (default)</option>
             {accounts.map((a) => (
               <option key={a.id} value={a.name}>
                 {a.name}
@@ -191,7 +196,7 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
           >
             {accountUUID
               ? `scope.account_id = ${accountUUID.slice(0, 8)}…`
-              : 'scope.account_id = (none — legacy default)'}
+              : 'scope.account_id = (chưa chọn tài khoản)'}
           </span>
         </div>
         <div

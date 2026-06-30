@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,12 +15,29 @@ import (
 // table. The BrainFeedService layer talks to this repo, never to the raw
 // db.Queries; this keeps pgtype.* leakage inside the repo package.
 type BrainFeedRepo struct {
-	q *db.Queries
+	q     *db.Queries
+	rawDB db.DBTX // exposed via SetRawDB so ad-hoc queries share the pool
 }
 
-// NewBrainFeedRepo wires a BrainFeedRepo backed by sqlc.
+// NewBrainFeedRepo wires a BrainFeedRepo backed by sqlc. Callers that
+// need raw-DBTX (e.g. CountByStatusByBrainIDs) must call SetRawDB
+// once at wiring time so the ad-hoc `ANY($::text[])` query shares
+// the same pool as the sqlc-generated queries.
 func NewBrainFeedRepo(q *db.Queries) *BrainFeedRepo {
 	return &BrainFeedRepo{q: q}
+}
+
+// SetRawDB records the DBTX used for ad-hoc queries that sqlc has not
+// generated (currently CountByStatusByBrainIDs).
+func (r *BrainFeedRepo) SetRawDB(dbtx db.DBTX) {
+	r.rawDB = dbtx
+}
+
+func (r *BrainFeedRepo) getRawDB() (db.DBTX, error) {
+	if r.rawDB == nil {
+		return nil, errors.New("BrainFeedRepo: raw DBTX not configured; call SetRawDB at wiring")
+	}
+	return r.rawDB, nil
 }
 
 // BrainFeedFilter holds optional filter values for List/Count.
@@ -74,17 +92,73 @@ func (r *BrainFeedRepo) Count(ctx context.Context, f BrainFeedFilter) (int64, er
 // CountByStatus returns feed counts grouped by status. Used by the
 // BrainStatsService to compute dashboard overview counters.
 func (r *BrainFeedRepo) CountByStatus(ctx context.Context) (map[string]int64, error) {
+	return r.countByStatusWhere(ctx, nil)
+}
+
+// CountByStatusByBrainIDs is the account-scoped variant. brainIDs is
+// the set of brain_content_id strings owned by the calling account
+// (queried from mdp-brain). Empty slice ⇒ all-zero counts (no rows
+// match the empty set). nil slice ⇒ unfiltered (same as
+// CountByStatus). Rows with empty `brain_content_id` are skipped
+// from the scoped path — they have no brain provenance so they
+// cannot belong to any account.
+func (r *BrainFeedRepo) CountByStatusByBrainIDs(ctx context.Context, brainIDs []string) (map[string]int64, error) {
+	if brainIDs == nil {
+		return r.CountByStatus(ctx)
+	}
+	if len(brainIDs) == 0 {
+		return zeroStatusCounts(), nil
+	}
+	return r.countByStatusWhere(ctx, brainIDs)
+}
+
+// zeroStatusCounts is the canonical all-zero counter map for an
+// empty-scope result. Returned by CountByStatusByBrainIDs when the
+// scope yields no brain_content_ids so callers see consistent
+// shape.
+func zeroStatusCounts() map[string]int64 {
+	return map[string]int64{"ingested": 0, "generated": 0, "pushed": 0, "failed": 0}
+}
+
+// countByStatusWhere is the shared SQL loop for both scoped and
+// unscoped variants. brainIDs nil = no brain_filter; non-nil (even
+// empty) = scope filter.
+func (r *BrainFeedRepo) countByStatusWhere(ctx context.Context, brainIDs []string) (map[string]int64, error) {
 	statuses := []string{"ingested", "generated", "pushed", "failed"}
 	out := map[string]int64{}
 	for _, st := range statuses {
 		s := st
-		n, err := r.Count(ctx, BrainFeedFilter{Status: &s})
+		n, err := r.countSingle(ctx, s, brainIDs)
 		if err != nil {
 			return nil, err
 		}
 		out[st] = n
 	}
 	return out, nil
+}
+
+// countSingle runs a single COUNT for a status, optionally scoped to
+// a set of brain_content_ids. Implementation: query the brain_feeds
+// table directly when scoped, reuse Count(filter{status}) when
+// unscoped — keeps the unscoped path identical to CountByStatus
+// without duplicating SQL.
+func (r *BrainFeedRepo) countSingle(ctx context.Context, status string, brainIDs []string) (int64, error) {
+	if len(brainIDs) == 0 && brainIDs != nil {
+		return 0, nil
+	}
+	if brainIDs == nil {
+		return r.Count(ctx, BrainFeedFilter{Status: &status})
+	}
+	dbtx, err := r.getRawDB()
+	if err != nil {
+		return 0, err
+	}
+	const q = `SELECT COUNT(*)::bigint FROM facebook.brain_feeds WHERE status = $1 AND brain_content_id = ANY($2::text[])`
+	var n int64
+	if err := dbtx.QueryRow(ctx, q, status, brainIDs).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // GetByID fetches a single brain_feed by its UUID.

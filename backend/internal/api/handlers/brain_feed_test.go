@@ -19,7 +19,7 @@ type stubBrainFeedLister struct {
 	listTotal int64
 }
 
-func (s *stubBrainFeedLister) List(ctx context.Context, _ repo.BrainFeedFilter, _, _ int) ([]models.BrainFeedRow, int64, error) {
+func (s *stubBrainFeedLister) List(ctx context.Context, _ repo.BrainFeedFilter, _ string, _, _ int) ([]models.BrainFeedRow, int64, error) {
 	return s.listResp, s.listTotal, nil
 }
 

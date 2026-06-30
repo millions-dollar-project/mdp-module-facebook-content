@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/mcp"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
@@ -18,6 +21,7 @@ const defaultMaxIngestConcurrency = 5
 type BrainClient interface {
 	IngestContent(ctx context.Context, p mcp.IngestParams) (string, error)
 	PrepareContentInput(ctx context.Context, in mcp.PrepareInput) (*mcp.PrepareResult, error)
+	QueryGraph(ctx context.Context, scope map[string]string, entityTypes []string, limit int) (*mcp.QueryGraphResult, error)
 }
 
 // BrainFeedStore is the repo surface the service depends on. The concrete
@@ -47,15 +51,16 @@ type BrainFeedService struct {
 	store      BrainFeedStore
 	draftStore BrainDraftStore
 	bc         BrainClient
+	kit        KitLoader
 	log        *slog.Logger
 	maxConc    int
 }
 
-func NewBrainFeedService(store BrainFeedStore, drafts BrainDraftStore, bc BrainClient, maxConc int) *BrainFeedService {
+func NewBrainFeedService(store BrainFeedStore, drafts BrainDraftStore, bc BrainClient, kit KitLoader, maxConc int) *BrainFeedService {
 	if maxConc <= 0 {
 		maxConc = defaultMaxIngestConcurrency
 	}
-	return &BrainFeedService{store: store, draftStore: drafts, bc: bc, log: slog.Default(), maxConc: maxConc}
+	return &BrainFeedService{store: store, draftStore: drafts, bc: bc, kit: kit, log: slog.Default(), maxConc: maxConc}
 }
 
 // Ingest persists posts to brain_feeds and concurrently calls mcp-brain to
@@ -80,7 +85,7 @@ func (s *BrainFeedService) Ingest(ctx context.Context, posts []models.CrawledPos
 				Content:       p.Content,
 				MediaURLs:     p.MediaURLs,
 				VideoURLs:     p.VideoURLs,
-				ThumbnailURLs: p.Thumbnails,
+				ThumbnailURLs: p.ThumbnailURLs,
 				FullPicture:   p.FullPicture,
 				MediaType:     p.MediaType,
 				Likes:         p.Likes,
@@ -146,8 +151,46 @@ func (s *BrainFeedService) Ingest(ctx context.Context, posts []models.CrawledPos
 	return result, nil
 }
 
-// List returns paginated rows + total count.
-func (s *BrainFeedService) List(ctx context.Context, f repo.BrainFeedFilter, page, pageSize int) ([]models.BrainFeedRow, int64, error) {
+// List returns paginated rows + total count. When accountID is non-empty
+// (the SHA-1 v5 UUID of a kit-account name) the SQL filter pins page_id
+// to the matching kit-account name. The earlier "intersect with mdp-brain
+// graph_entities" approach produced spurious zero rows in practice
+// because brain_feeds.brain_content_id is one-shot — re-runs hand out
+// fresh graph IDs while old brain_feeds rows keep their previous
+// brain_content_id, so the in-memory intersection dropped legitimate
+// rows. The page_id name is set at ingest time and is stable, so it is
+// the authoritative per-account filter.
+//
+// accountID may be either:
+//   - a SHA-1 v5 UUID (the UI's wire format) → resolved to a kit-account
+//     name via KitLoader and used as page_id.
+//   - a raw kit-account name → used as page_id verbatim (handy for
+//     debug / dev tools that pass the name directly).
+//   - empty → no account scoping.
+//
+// An unknown UUID returns an empty page rather than the global feed;
+// leaking unscoped rows for a UUID the caller asked about would be
+// confusing in the UI.
+func (s *BrainFeedService) List(ctx context.Context, f repo.BrainFeedFilter, accountID string, page, pageSize int) ([]models.BrainFeedRow, int64, error) {
+	if accountID != "" {
+		name, ok, unknownUUID := s.resolveAccountName(ctx, accountID)
+		if unknownUUID {
+			// Well-formed UUID that doesn't map to any kit account:
+			// return an empty page so the UI doesn't show a stranger's
+			// rows under a phantom account scope.
+			return []models.BrainFeedRow{}, 0, nil
+		}
+		if ok {
+			f.SourcePage = &name
+		}
+		// ok==false && unknownUUID==false: accountID is a raw name
+		// (no dashes or otherwise doesn't parse as UUID) — fall through
+		// and use it as the page filter verbatim.
+		if !ok {
+			raw := accountID
+			f.SourcePage = &raw
+		}
+	}
 	total, err := s.store.Count(ctx, f)
 	if err != nil {
 		return nil, 0, err
@@ -157,6 +200,34 @@ func (s *BrainFeedService) List(ctx context.Context, f repo.BrainFeedFilter, pag
 		return nil, 0, err
 	}
 	return rows, total, nil
+}
+
+// resolveAccountName maps a UI-supplied account_id back to a kit-account
+// name. The third return value, unknownUUID, distinguishes a
+// well-formed UUID that didn't match any kit account (caller should
+// return an empty page) from a non-UUID raw name (caller should use
+// the input as the page filter verbatim).
+func (s *BrainFeedService) resolveAccountName(ctx context.Context, accountID string) (string, bool, bool) {
+	if strings.Count(accountID, "-") == 4 {
+		id, err := uuid.Parse(accountID)
+		if err == nil {
+			// Looks like a UUID. Consult the kit loader.
+			if s.kit == nil {
+				// No kit loader configured: can't resolve a UUID at
+				// all, so the caller asked for a scope we can't honor.
+				return "", false, true
+			}
+			snap, err := s.kit.LookupByUUID(ctx, id)
+			if err != nil {
+				return "", false, true
+			}
+			return snap.Name, true, false
+		}
+		// Four dashes but didn't parse — treat as raw name.
+		return accountID, false, false
+	}
+	// Not a UUID-shaped input — caller passed a raw name.
+	return accountID, false, false
 }
 
 // Delete removes a feed by ID.

@@ -138,6 +138,7 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	// installed" and the routes will 503 with a clear message instead
 	// of crash-looping on a missing binary.
 	brainFeedRepo := repo.NewBrainFeedRepo(queries)
+	brainFeedRepo.SetRawDB(d.Pool)
 	brainDraftRepo := repo.NewBrainDraftRepo(queries)
 	// The repos expose *Row methods that operate on domain models.
 	// The service interface wants *string ids, so wrap the repos in
@@ -161,7 +162,7 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	}
 	var brainSvc *service.BrainFeedService
 	if brainClient != nil {
-		brainSvc = service.NewBrainFeedService(brainFeedStore, brainDraftStore, brainClient, 5)
+		brainSvc = service.NewBrainFeedService(brainFeedStore, brainDraftStore, brainClient, kitLoader, 5)
 	}
 	brainH := handlers.NewBrainFeedHandler(brainSvc, brainSvc, brainSvc)
 
@@ -174,7 +175,7 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	}
 	brainStatsStore := brainStatsStoreAdapter{feeds: brainFeedRepo, drafts: brainDraftRepo}
 	brainStatsSvc := service.NewBrainStatsService(brainStatsStore, brainClient, brainScope)
-	overviewH := handlers.NewBrainOverviewHandler(brainStatsSvc)
+	overviewH := handlers.NewBrainOverviewHandler(brainStatsSvc, brainScope)
 	peekH := handlers.NewBrainPeekHandler(brainFeedRepo, brainDraftRepo, brainClient)
 	brainPersonasH := handlers.NewBrainPersonasHandler(brainClient, brainScope)
 	learningH := handlers.NewBrainLearningHandler(brainClient, brainScope)
@@ -446,6 +447,10 @@ type brainStatsStoreAdapter struct {
 
 func (a brainStatsStoreAdapter) CountByStatus(ctx context.Context) (map[string]int64, error) {
 	return a.feeds.CountByStatus(ctx)
+}
+
+func (a brainStatsStoreAdapter) CountByStatusByBrainIDs(ctx context.Context, brainIDs []string) (map[string]int64, error) {
+	return a.feeds.CountByStatusByBrainIDs(ctx, brainIDs)
 }
 
 func (a brainStatsStoreAdapter) CountDraftsByStatus(ctx context.Context) (map[string]int64, error) {

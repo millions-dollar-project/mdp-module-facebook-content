@@ -26,12 +26,17 @@ type BrainOverviewService interface {
 // by BrainStatsService.GetOverview. It depends on a small interface so
 // tests can inject a fake without spinning up the DB or the Brain MCP.
 type BrainOverviewHandler struct {
-	svc BrainOverviewService
+	svc   BrainOverviewService
+	scope map[string]string
 }
 
-// NewBrainOverviewHandler wires the service dependency.
-func NewBrainOverviewHandler(svc BrainOverviewService) *BrainOverviewHandler {
-	return &BrainOverviewHandler{svc: svc}
+// NewBrainOverviewHandler wires the service dependency. scope may be
+// nil — the handler falls back to {"user_id": "default"}.
+func NewBrainOverviewHandler(svc BrainOverviewService, scope map[string]string) *BrainOverviewHandler {
+	if scope == nil {
+		scope = map[string]string{"user_id": "default"}
+	}
+	return &BrainOverviewHandler{svc: svc, scope: scope}
 }
 
 // Get godoc
@@ -39,11 +44,11 @@ func NewBrainOverviewHandler(svc BrainOverviewService) *BrainOverviewHandler {
 // @Tags brain
 // @Param account_id query string false "Per-account scope override (SHA-1 v5 UUID of kit-account name). Empty = default BrainScope."
 func (h *BrainOverviewHandler) Get(c *gin.Context) {
-	// We always use the per-scope variant so the wire contract is
-	// consistent across endpoints. Passing nil here lets the service
-	// fall back to its constructor-time scope — same behavior as
-	// before this handler gained account scoping.
-	out, err := h.svc.GetOverviewWithScope(c.Request.Context(), nil)
+	// Resolve per-request scope: account_id overrides the constructor-time
+	// scope so each kit-account sees its own counts. Without this, all
+	// accounts would share the global dashboard numbers.
+	scope := withAccountScope(h.scope, c.Query("account_id"))
+	out, err := h.svc.GetOverviewWithScope(c.Request.Context(), scope)
 	if err != nil {
 		WriteError(c.Writer, c.Request, http.StatusInternalServerError, "overview_failed", err.Error(), middleware.GetRequestID(c))
 		return

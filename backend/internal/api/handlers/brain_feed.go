@@ -20,7 +20,7 @@ import (
 // *service.BrainFeedService satisfies this interface; tests use a
 // stub.
 type BrainFeedLister interface {
-	List(ctx context.Context, f repo.BrainFeedFilter, page, pageSize int) ([]models.BrainFeedRow, int64, error)
+	List(ctx context.Context, f repo.BrainFeedFilter, accountID string, page, pageSize int) ([]models.BrainFeedRow, int64, error)
 	Delete(ctx context.Context, id string) error
 }
 
@@ -52,6 +52,7 @@ func NewBrainFeedHandler(svc BrainFeedLister, ingest BrainFeedIngestCaller, gene
 // List godoc
 // @Summary List brain feed rows with filters and pagination
 // @Tags brain
+// @Param account_id query string false "Per-account scope override (SHA-1 v5 UUID of kit-account name). Empty = unfiltered."
 func (h *BrainFeedHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -85,7 +86,8 @@ func (h *BrainFeedHandler) List(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "brain_not_configured", "message": "brain service not configured"})
 		return
 	}
-	items, total, err := h.svc.List(c.Request.Context(), f, page, pageSize)
+	accountID := c.Query("account_id")
+	items, total, err := h.svc.List(c.Request.Context(), f, accountID, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "list_failed", "message": err.Error()})
 		return

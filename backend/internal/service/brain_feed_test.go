@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/db"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/mcp"
@@ -23,6 +24,11 @@ type fakeBrainClient struct {
 
 	prepareResults []*mcp.PrepareResult
 	prepareErr     error
+
+	// queryResults is a queue: each QueryGraph call pops the head.
+	queryResults []*mcp.QueryGraphResult
+	// queryCalls records (scope, entityTypes, limit) for each QueryGraph call.
+	queryCalls []queryCall
 }
 
 func (f *fakeBrainClient) IngestContent(ctx context.Context, p mcp.IngestParams) (string, error) {
@@ -54,10 +60,31 @@ func (f *fakeBrainClient) PrepareContentInput(ctx context.Context, in mcp.Prepar
 	return r, nil
 }
 
+func (f *fakeBrainClient) QueryGraph(ctx context.Context, scope map[string]string, entityTypes []string, limit int) (*mcp.QueryGraphResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queryCalls = append(f.queryCalls, queryCall{Scope: scope, EntityTypes: entityTypes, Limit: limit})
+	if len(f.queryResults) == 0 {
+		return &mcp.QueryGraphResult{Entities: nil}, nil
+	}
+	r := f.queryResults[0]
+	f.queryResults = f.queryResults[1:]
+	return r, nil
+}
+
+// queryCall is recorded by fakeBrainClient.QueryGraph so tests can
+// assert what the service actually sent on the JSON-RPC args map.
+type queryCall struct {
+	Scope       map[string]string
+	EntityTypes []string
+	Limit       int
+}
+
 // stubFeedRepo implements service.BrainFeedStore using a thread-safe map.
 type stubFeedRepo struct {
-	mu   sync.Mutex
-	rows map[string]models.BrainFeedRow // keyed by CrawledPostID
+	mu    sync.Mutex
+	rows  map[string]models.BrainFeedRow // keyed by CrawledPostID
+	onList func(repo.BrainFeedFilter)    // optional hook called by List, tests use it to capture the filter
 }
 
 func newStubRepo() *stubFeedRepo {
@@ -122,7 +149,10 @@ func (s *stubFeedRepo) Count(ctx context.Context, f repo.BrainFeedFilter) (int64
 
 func (s *stubFeedRepo) List(ctx context.Context, f repo.BrainFeedFilter, page, pageSize int) ([]models.BrainFeedRow, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	if s.onList != nil {
+		s.onList(f)
+	}
+	s.mu.Unlock()
 	out := make([]models.BrainFeedRow, 0, len(s.rows))
 	for _, r := range s.rows {
 		out = append(out, r)
@@ -145,7 +175,7 @@ var _ = pgtype.UUID{}
 func TestBrainFeedService_Ingest_HappyPath(t *testing.T) {
 	store := newStubRepo()
 	bc := &fakeBrainClient{ingestIDs: []string{"brain-1", "brain-2", "brain-3"}}
-	svc := NewBrainFeedService(store, nil, bc, 5)
+	svc := NewBrainFeedService(store, nil, bc, nil, 5)
 
 	posts := []models.CrawledPostInput{
 		{SourceURL: "u1", PageID: "p1", Content: "c1", Permalink: "p1", PostedAt: time.Now()},
@@ -167,7 +197,7 @@ func TestBrainFeedService_Ingest_HappyPath(t *testing.T) {
 func TestBrainFeedService_Ingest_PartialFailure(t *testing.T) {
 	store := newStubRepo()
 	bc := &fakeBrainClient{ingestIDs: []string{"brain-1"}} // only 1 ID
-	svc := NewBrainFeedService(store, nil, bc, 5)
+	svc := NewBrainFeedService(store, nil, bc, nil, 5)
 
 	posts := []models.CrawledPostInput{
 		{SourceURL: "u1", PageID: "p1", Content: "c1", Permalink: "p1", PostedAt: time.Now()},
@@ -185,7 +215,7 @@ func TestBrainFeedService_Ingest_PartialFailure(t *testing.T) {
 func TestBrainFeedService_Ingest_MCPErrorMarksFailed(t *testing.T) {
 	store := newStubRepo()
 	bc := &fakeBrainClient{ingestErr: errors.New("brain dead")}
-	svc := NewBrainFeedService(store, nil, bc, 5)
+	svc := NewBrainFeedService(store, nil, bc, nil, 5)
 
 	posts := []models.CrawledPostInput{
 		{SourceURL: "u1", PageID: "p1", Content: "c1", Permalink: "p1", PostedAt: time.Now()},
@@ -206,10 +236,10 @@ func TestBrainFeedService_Ingest_MCPErrorMarksFailed(t *testing.T) {
 func TestBrainFeedService_List_ReturnsRowsAndTotal(t *testing.T) {
 	store := newStubRepo()
 	bc := &fakeBrainClient{}
-	svc := NewBrainFeedService(store, nil, bc, 5)
+	svc := NewBrainFeedService(store, nil, bc, nil, 5)
 	store.rows["u1"] = models.BrainFeedRow{ID: "feed-1", CrawledPostID: "u1", Status: "ingested"}
 
-	rows, total, err := svc.List(context.Background(), repo.BrainFeedFilter{}, 1, 20)
+	rows, total, err := svc.List(context.Background(), repo.BrainFeedFilter{}, "", 1, 20)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -221,7 +251,86 @@ func TestBrainFeedService_List_ReturnsRowsAndTotal(t *testing.T) {
 	}
 }
 
-// stubDraftRepo implements service.BrainDraftStore.
+// TestBrainFeedService_List_UUIDScopedSetsPageFilter proves that when
+// accountID is a SHA-1 v5 UUID, the service resolves it via KitLoader
+// and pins SourcePage to the matching kit-account name. This is the
+// path that fixes the "Graph shows data but Feed is empty" bug — the
+// old brain-entity-intersect approach was lossy because brain_feeds
+// rows carry stale brain_content_ids.
+func TestBrainFeedService_List_UUIDScopedSetsPageFilter(t *testing.T) {
+	store := newStubRepo()
+	bc := &fakeBrainClient{}
+	const accName = "acc-001-tai-khoan-1"
+	kit := newFakeKitLoader(KitAccountSnapshot{Name: accName, Status: "active"})
+	svc := NewBrainFeedService(store, nil, bc, kit, 5)
+
+	accUUID := AccountUUIDFromName(accName).String()
+	var captured repo.BrainFeedFilter
+	store.onList = func(f repo.BrainFeedFilter) {
+		captured = f
+	}
+
+	_, _, err := svc.List(context.Background(), repo.BrainFeedFilter{}, accUUID, 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if captured.SourcePage == nil {
+		t.Fatalf("want SourcePage set to %q, got nil filter", accName)
+	}
+	if *captured.SourcePage != accName {
+		t.Fatalf("want SourcePage=%q, got %q", accName, *captured.SourcePage)
+	}
+}
+
+// TestBrainFeedService_List_UnknownUUIDReturnsEmpty proves that an
+// unknown UUID returns an empty page rather than leaking the global
+// feed. The UI sends a UUID the user picked from their account list;
+// returning the unscoped feed under a phantom scope would be
+// confusing and a privacy regression.
+func TestBrainFeedService_List_UnknownUUIDReturnsEmpty(t *testing.T) {
+	store := newStubRepo()
+	store.rows["u1"] = models.BrainFeedRow{ID: "feed-1", CrawledPostID: "u1", Status: "ingested"}
+	bc := &fakeBrainClient{}
+	kit := newFakeKitLoader() // empty — no known accounts
+	svc := NewBrainFeedService(store, nil, bc, kit, 5)
+
+	rows, total, err := svc.List(context.Background(), repo.BrainFeedFilter{}, "ffffffff-ffff-ffff-ffff-ffffffffffff", 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("want total=0 for unknown UUID, got %d", total)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("want 0 rows for unknown UUID, got %d", len(rows))
+	}
+}
+
+// TestBrainFeedService_List_RawNamePassedAsPageFilter proves that a
+// non-UUID accountID (e.g. the raw kit-account name from a debug
+// tool) is used as the page_id filter verbatim.
+func TestBrainFeedService_List_RawNamePassedAsPageFilter(t *testing.T) {
+	store := newStubRepo()
+	bc := &fakeBrainClient{}
+	kit := newFakeKitLoader(KitAccountSnapshot{Name: "acc-001-tai-khoan-1", Status: "active"})
+	svc := NewBrainFeedService(store, nil, bc, kit, 5)
+
+	var captured repo.BrainFeedFilter
+	store.onList = func(f repo.BrainFeedFilter) {
+		captured = f
+	}
+
+	_, _, err := svc.List(context.Background(), repo.BrainFeedFilter{}, "acc-001-tai-khoan-1", 1, 20)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if captured.SourcePage == nil {
+		t.Fatalf("want SourcePage set for raw name, got nil")
+	}
+	if *captured.SourcePage != "acc-001-tai-khoan-1" {
+		t.Fatalf("want SourcePage=acc-001-tai-khoan-1, got %q", *captured.SourcePage)
+	}
+}
 type stubDraftRepo struct {
 	mu       sync.Mutex
 	inserted []models.BrainDraftRow
@@ -245,6 +354,41 @@ var _ BrainDraftStore = (*stubDraftRepo)(nil)
 
 var _ = db.FacebookBrainDraft{}
 
+// fakeKitLoader is a tiny KitLoader for tests that need UUID→name resolution.
+type fakeKitLoader struct {
+	byName map[string]KitAccountSnapshot // keyed by Name (== LookupAll's view)
+	byUUID map[string]KitAccountSnapshot // keyed by UUID.String()
+}
+
+func newFakeKitLoader(accounts ...KitAccountSnapshot) *fakeKitLoader {
+	fk := &fakeKitLoader{byName: map[string]KitAccountSnapshot{}, byUUID: map[string]KitAccountSnapshot{}}
+	for _, a := range accounts {
+		fk.byName[a.Name] = a
+		fk.byUUID[AccountUUIDFromName(a.Name).String()] = a
+	}
+	return fk
+}
+
+func (f *fakeKitLoader) LookupByUUID(ctx context.Context, id uuid.UUID) (KitAccountSnapshot, error) {
+	snap, ok := f.byUUID[id.String()]
+	if !ok {
+		return KitAccountSnapshot{}, ErrKitAccountNotFound
+	}
+	return snap, nil
+}
+
+func (f *fakeKitLoader) LookupAll(ctx context.Context) ([]KitAccountSnapshot, error) {
+	out := make([]KitAccountSnapshot, 0, len(f.byName))
+	for _, s := range f.byName {
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+func (f *fakeKitLoader) Invalidate() {}
+
+var _ KitLoader = (*fakeKitLoader)(nil)
+
 func TestBrainFeedService_Generate_HappyPath(t *testing.T) {
 	store := newStubRepo()
 	store.rows["u1"] = models.BrainFeedRow{ID: "feed-1", CrawledPostID: "u1", Content: "c1", PageID: "p1", PostedAt: time.Now(), Status: "ingested"}
@@ -255,7 +399,7 @@ func TestBrainFeedService_Generate_HappyPath(t *testing.T) {
 		{ProvenanceID: "prov-1", DraftVariants: []mcp.DraftVariant{{Index: 0, Content: "draft 1"}}, Validation: mcp.ValidationResult{Status: "ok"}, GenerationAvailable: true},
 	}
 
-	svc := NewBrainFeedService(store, drafts, bc, 5)
+	svc := NewBrainFeedService(store, drafts, bc, nil, 5)
 	out, failures, err := svc.Generate(context.Background(), []string{"feed-1"}, "persona-tech")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -293,7 +437,7 @@ func TestBrainFeedService_Generate_PartialFailure(t *testing.T) {
 	}
 	// No second result — feed-2 will fail
 
-	svc := NewBrainFeedService(store, drafts, bc, 5)
+	svc := NewBrainFeedService(store, drafts, bc, nil, 5)
 	out, failures, err := svc.Generate(context.Background(), []string{"feed-1", "feed-2"}, "")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -332,7 +476,7 @@ func TestBrainFeedService_Generate_BlockedValidation(t *testing.T) {
 		{ProvenanceID: "prov-1", DraftVariants: []mcp.DraftVariant{{Index: 0, Content: "draft 1"}}, Validation: mcp.ValidationResult{Status: "blocked"}, GenerationAvailable: false},
 	}
 
-	svc := NewBrainFeedService(store, drafts, bc, 5)
+	svc := NewBrainFeedService(store, drafts, bc, nil, 5)
 	out, _, err := svc.Generate(context.Background(), []string{"feed-1"}, "")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -357,7 +501,7 @@ func TestBrainFeedService_Generate_FeedNotFound(t *testing.T) {
 	drafts := &stubDraftRepo{}
 	bc := &fakeBrainClient{}
 
-	svc := NewBrainFeedService(store, drafts, bc, 5)
+	svc := NewBrainFeedService(store, drafts, bc, nil, 5)
 	_, failures, err := svc.Generate(context.Background(), []string{"nonexistent"}, "")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
