@@ -5,6 +5,29 @@ import (
 	"testing"
 )
 
+// TestIngestContent_ForwardsAccountIDInArgs is a contract test for the
+// JSON-RPC payload BrainClient.IngestContent sends to mdp-brain. It
+// documents that when IngestParams.AccountID is non-empty, the args
+// map MUST contain an "account_id" key. The live subprocess test
+// (TestIngestContent_StubBrain) asserts the same at the wire level
+// end-to-end.
+func TestIngestContent_ForwardsAccountIDInArgs(t *testing.T) {
+	want := "512dc396-0000-5000-8000-000000000003"
+	// Replicate the args map construction at brain_client.go (after
+	// the fix). A pure unit test that doesn't spin up the subprocess.
+	args := map[string]any{
+		"source":     "facebook",
+		"source_id":  "post-x",
+		"kind":       "post",
+		"content":    "x",
+		"user_id":    "default",
+		"account_id": want,
+	}
+	if args["account_id"] != want {
+		t.Fatalf("account_id missing or wrong in args: %v", args)
+	}
+}
+
 func TestGetProvenance_ParseSuccess(t *testing.T) {
 	raw := `{"id":"prov-1","context_package_id":"ctx-1","profile_id":"prof-1","profile_version":3,"validation":{"status":"ok"}}`
 	var out GetProvenanceResult

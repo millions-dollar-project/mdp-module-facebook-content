@@ -330,11 +330,16 @@ func (c *BrainClient) IngestContent(ctx context.Context, p IngestParams) (string
 	if p.UserID == "" {
 		p.UserID = "default"
 	}
-	// The mdp-brain tool expects flat scope fields (user_id), not a nested
-	// "scope" object. Sending {scope:{...}} fails with "unexpected
-	// additional properties [\"scope\"]".
-	// mdp-brain has been updated to accept metadata as an open `any`
-	// (object/array/null) so a Go map[string]any serialises through fine.
+	// The mdp-brain tool expects flat scope fields (user_id,
+	// account_id), not a nested "scope" object. Sending {scope:{...}}
+	// fails with "unexpected additional properties [\"scope\"]".
+	// mdp-brain accepts metadata as an open `any`
+	// (object/array/null) so a Go map[string]any serialises through.
+	//
+	// mdp-brain (mdp-brain/internal/mcp/brain_tools.go:19) now declares
+	// `account_id` on `brainIngestRawInputIn`, so forwarding it as a
+	// flat arg is safe and stamps it onto the row's scope JSONB. This
+	// is what makes per-account dashboard queries find the row.
 	args := map[string]any{
 		"source":    p.Source,
 		"source_id": p.SourceID,
@@ -342,19 +347,9 @@ func (c *BrainClient) IngestContent(ctx context.Context, p IngestParams) (string
 		"content":   p.Content,
 		"user_id":   p.UserID,
 	}
-	// NOTE: `account_id` is intentionally NOT forwarded as a flat arg
-	// here. mdp-brain's `brainIngestRawInputIn` struct (mdp-brain/
-	// internal/mcp/brain_tools.go:19) currently only declares `user_id`;
-	// sending an undeclared key triggers go-sdk/mcp validation
-	// ("unexpected additional properties [\"account_id\"]") and the
-	// ingest 5xx's. Until mdp-brain adds an `AccountID` field to that
-	// input struct, fresh crawls continue to land under scope =
-	// {user_id: "default"}.
-	//
-	// FB-content side is fully wired (CrawledPostInput.AccountUUID ->
-	// service.Ingest -> IngestParams.AccountID), so the moment mdp-brain
-	// adds the field the only change needed here is:
-	//   if p.AccountID != "" { args["account_id"] = p.AccountID }
+	if p.AccountID != "" {
+		args["account_id"] = p.AccountID
+	}
 	if len(p.Metadata) > 0 {
 		args["metadata"] = p.Metadata
 	}
