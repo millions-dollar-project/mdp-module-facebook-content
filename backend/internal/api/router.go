@@ -4,12 +4,14 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -75,7 +77,6 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	publisher := service.NewPublisher(d.Graph, d.Posts, d.Pages, d.Logger)
 	pagesSvc := service.NewPages(d.Pages, d.Graph, d.Logger)
 	queueSvc := service.NewQueue(d.Queue, d.Pages, publisher, d.Logger)
-	schedSvc := service.NewScheduler(d.Sched, d.Pages, publisher, d.Logger)
 	configSvc := service.NewConfig(d.Config)
 
 	queries := db.New(d.Pool)
@@ -120,6 +121,14 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		}
 		repostSvc = service.NewRepostCampaignService(repostCampaignRepo, repostJobRepo, kitLoader, fbGroupRepo, crawledPostRepo, sidecarClient, aiClient)
 	}
+
+	// schedSvc handles both fanpage (Graph API) and personal (sidecar
+	// Playwright /me) scheduled posts. The kit loader and sidecar are
+	// the same singletons used by the rest of the kit-accounts and
+	// repost flows — passing them in here keeps the worker + manual
+	// publish paths symmetric. Built here (after kitLoader +
+	// sidecarClient) so it can capture both refs.
+	schedSvc := service.NewScheduler(d.Sched, d.Pages, publisher, sidecarClient, kitLoader, d.Logger)
 	repostH := handlers.NewRepostHandler(repostCampaignRepo, repostJobRepo, kitLoader, fbGroupRepo, crawledPostRepo, repostSvc, sidecarClient)
 
 	// Kling AI
@@ -215,7 +224,7 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	{
 		pagesH := handlers.NewPages(pagesSvc)
 		queueH := handlers.NewQueue(queueSvc)
-		schedH := handlers.NewScheduler(schedSvc)
+		schedH := handlers.NewScheduler(schedSvc, d.Sched)
 		cfgH := handlers.NewConfig(configSvc)
 		pubH := handlers.NewPublish(d.Pages, schedSvc)
 		inboxH := handlers.NewInbox(inboxSvc, aiSvc, convRepo)
@@ -270,7 +279,17 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		v1.GET("/scheduled-posts", schedH.List)
 		v1.POST("/schedule-post", schedH.Schedule)
 		v1.POST("/publish-scheduled-now", schedH.PublishNow)
+		v1.POST("/reschedule-scheduled-post", schedH.Reschedule)
 		v1.POST("/cancel-schedule", schedH.Cancel)
+
+		// Brain → schedule batch (crawl → generate → schedule for /me)
+		brainScheduleH := handlers.NewBrainScheduleHandler(
+			brainSvc,
+			schedSvc,
+			brainDraftRepo,
+			kitAccountExistsAdapter{loader: kitLoader},
+		)
+		v1.POST("/brain/generate-and-schedule", brainScheduleH.GenerateAndSchedule)
 
 		// Publish (immediate, snake_case body)
 		v1.POST("/publish", pubH.Publish)
@@ -455,4 +474,32 @@ func (a brainStatsStoreAdapter) CountByStatusByBrainIDs(ctx context.Context, bra
 
 func (a brainStatsStoreAdapter) CountDraftsByStatus(ctx context.Context) (map[string]int64, error) {
 	return a.drafts.CountDraftsByStatus(ctx)
+}
+
+// kitAccountExistsAdapter adapts service.KitLoader.LookupByUUID to the
+// handlers.KitAccountResolver interface. The pre-flight in
+// /brain/generate-and-schedule uses this to short-circuit the whole
+// batch with a 404 if the user-supplied UUID doesn't resolve.
+//
+// Note: KitLoader returns (KitAccountSnapshot, ErrKitAccountNotFound)
+// on miss; the handler treats (exists=false, err=ErrKitAccountNotFound)
+// as a clean 404 and any other error as a 500. We collapse the two
+// shapes here so the handler doesn't have to import service types.
+type kitAccountExistsAdapter struct {
+	loader service.KitLoader
+}
+
+func (a kitAccountExistsAdapter) LookupByUUID(ctx context.Context, id string) (bool, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return false, err
+	}
+	snap, err := a.loader.LookupByUUID(ctx, uid)
+	if err != nil {
+		if errors.Is(err, service.ErrKitAccountNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return snap.Name != "", nil
 }

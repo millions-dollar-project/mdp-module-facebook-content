@@ -6,6 +6,7 @@ package repo
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"strconv"
 	"time"
@@ -69,6 +70,22 @@ func stringToUUID(s string) pgtype.UUID {
 		i++
 	}
 	return pgtype.UUID{Bytes: b, Valid: true}
+}
+
+// stringToUUIDErr is the error-returning variant of stringToUUID used
+// by callers that need to distinguish "not provided" (empty → invalid
+// UUID) from "malformed" (non-empty + invalid → error). The service
+// layer uses it to reject API inputs that aren't valid kit-account
+// UUIDs before they hit the DB.
+func stringToUUIDErr(s string) (pgtype.UUID, error) {
+	if s == "" {
+		return pgtype.UUID{}, nil
+	}
+	u := stringToUUID(s)
+	if !u.Valid {
+		return pgtype.UUID{}, fmt.Errorf("invalid uuid: %q", s)
+	}
+	return u, nil
 }
 
 // stringPtrToUUID is the nullable counterpart to stringToUUID. A nil

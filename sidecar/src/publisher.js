@@ -289,4 +289,18 @@ async function checkGroupAccess({ profilePath, groupId, headless = true }) {
   }
 }
 
-module.exports = { postToGroup, checkGroupAccess };
+module.exports = {
+  postToGroup,
+  checkGroupAccess,
+  // Helpers re-used by the personal-profile publisher
+  // (publisher-profile.js). Keeping them exported here avoids a copy
+  // of the selector banks + media download/upload plumbing.
+  FB_COMPOSER_SELECTORS,
+  FB_POST_BUTTON_SELECTORS,
+  waitForAnySelector,
+  findAnySelector,
+  fillComposerCaption,
+  prepareMediaFiles,
+  uploadMediaFiles,
+  waitForComposerSubmitted,
+};

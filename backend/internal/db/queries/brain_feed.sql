@@ -78,16 +78,17 @@ WHERE id = ANY($1::uuid[]);
 
 -- name: InsertBrainDraft :one
 INSERT INTO facebook.brain_drafts (
-  feed_id, content, provenance_id, validation_status, validation_details, warnings, status
+  feed_id, content, provenance_id, validation_status, validation_details,
+  warnings, persona_id, status
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7
+  $1, $2, $3, $4, $5, $6, $7, $8
 )
 RETURNING id, feed_id, content, provenance_id, validation_status, validation_details,
-          warnings, kanban_job_id, status, created_at, updated_at;
+          warnings, persona_id, kanban_job_id, status, created_at, updated_at;
 
 -- name: ListBrainDraftsByFeedIDs :many
 SELECT id, feed_id, content, provenance_id, validation_status, validation_details,
-       warnings, kanban_job_id, status, created_at, updated_at
+       warnings, persona_id, kanban_job_id, status, created_at, updated_at
 FROM facebook.brain_drafts
 WHERE feed_id = ANY($1::uuid[])
 ORDER BY created_at DESC;

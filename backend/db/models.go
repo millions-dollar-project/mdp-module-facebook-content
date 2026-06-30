@@ -53,6 +53,7 @@ type FacebookBrainDraft struct {
 	Status            string             `json:"status"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	PersonaID         string             `json:"persona_id"`
 }
 
 type FacebookBrainFeed struct {
@@ -334,6 +335,7 @@ type FacebookScheduledPost struct {
 	ErrorMessage         *string            `json:"error_message"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
 }
 
 type FacebookVideoConfig struct {

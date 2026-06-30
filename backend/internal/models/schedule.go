@@ -26,6 +26,11 @@ const (
 	PostTypeLink     PostType = "link"
 	PostTypeCarousel PostType = "carousel"
 	PostTypeReel     PostType = "reel"
+	// PostTypePersonal is for FB-content's crawl → brain → schedule
+	// flow where the target is the user's personal profile (posted via
+	// Playwright /me, not the Graph API). Personal rows leave PageID
+	// nil and carry the kit-account UUID in KitAccountID.
+	PostTypePersonal PostType = "personal"
 )
 
 // ScheduledPost matches plugin/src/lib/types.ts `ScheduledPost`. The
@@ -33,6 +38,8 @@ const (
 // message so the plugin can decode it into its own shape.
 type ScheduledPost struct {
 	ID                   string          `json:"id"`
+	// PageID is the FB page UUID for fanpage posts. Nil for personal
+	// posts (post_type='personal'), which carry KitAccountID instead.
 	PageID               string          `json:"pageId"`
 	PageName             string          `json:"pageName,omitempty"`
 	Content              string          `json:"content"`
@@ -47,6 +54,10 @@ type ScheduledPost struct {
 	CampaignID           *string         `json:"campaignId,omitempty"`
 	FacebookPostID       *string         `json:"facebookPostId,omitempty"`
 	ErrorMessage         *string         `json:"errorMessage,omitempty"`
-	CreatedAt            time.Time       `json:"createdAt"`
-	UpdatedAt            time.Time       `json:"updatedAt"`
+	// KitAccountID is the SHA-1 v5 UUID of the kit account whose
+	// Chromium profile the sidecar launches. Set only for
+	// post_type='personal' rows; nil for fanpage posts.
+	KitAccountID *string   `json:"kitAccountId,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }

@@ -147,12 +147,13 @@ func (q *Queries) GetBrainFeedByID(ctx context.Context, id pgtype.UUID) (Faceboo
 
 const insertBrainDraft = `-- name: InsertBrainDraft :one
 INSERT INTO facebook.brain_drafts (
-  feed_id, content, provenance_id, validation_status, validation_details, warnings, status
+  feed_id, content, provenance_id, validation_status, validation_details,
+  warnings, persona_id, status
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7
+  $1, $2, $3, $4, $5, $6, $7, $8
 )
 RETURNING id, feed_id, content, provenance_id, validation_status, validation_details,
-          warnings, kanban_job_id, status, created_at, updated_at
+          warnings, persona_id, kanban_job_id, status, created_at, updated_at
 `
 
 type InsertBrainDraftParams struct {
@@ -162,10 +163,26 @@ type InsertBrainDraftParams struct {
 	ValidationStatus  string      `json:"validation_status"`
 	ValidationDetails []byte      `json:"validation_details"`
 	Warnings          []byte      `json:"warnings"`
+	PersonaID         string      `json:"persona_id"`
 	Status            string      `json:"status"`
 }
 
-func (q *Queries) InsertBrainDraft(ctx context.Context, arg InsertBrainDraftParams) (FacebookBrainDraft, error) {
+type InsertBrainDraftRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	FeedID            pgtype.UUID        `json:"feed_id"`
+	Content           string             `json:"content"`
+	ProvenanceID      string             `json:"provenance_id"`
+	ValidationStatus  string             `json:"validation_status"`
+	ValidationDetails []byte             `json:"validation_details"`
+	Warnings          []byte             `json:"warnings"`
+	PersonaID         string             `json:"persona_id"`
+	KanbanJobID       *string            `json:"kanban_job_id"`
+	Status            string             `json:"status"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) InsertBrainDraft(ctx context.Context, arg InsertBrainDraftParams) (InsertBrainDraftRow, error) {
 	row := q.db.QueryRow(ctx, insertBrainDraft,
 		arg.FeedID,
 		arg.Content,
@@ -173,9 +190,10 @@ func (q *Queries) InsertBrainDraft(ctx context.Context, arg InsertBrainDraftPara
 		arg.ValidationStatus,
 		arg.ValidationDetails,
 		arg.Warnings,
+		arg.PersonaID,
 		arg.Status,
 	)
-	var i FacebookBrainDraft
+	var i InsertBrainDraftRow
 	err := row.Scan(
 		&i.ID,
 		&i.FeedID,
@@ -184,6 +202,7 @@ func (q *Queries) InsertBrainDraft(ctx context.Context, arg InsertBrainDraftPara
 		&i.ValidationStatus,
 		&i.ValidationDetails,
 		&i.Warnings,
+		&i.PersonaID,
 		&i.KanbanJobID,
 		&i.Status,
 		&i.CreatedAt,
@@ -278,21 +297,36 @@ func (q *Queries) InsertBrainFeed(ctx context.Context, arg InsertBrainFeedParams
 
 const listBrainDraftsByFeedIDs = `-- name: ListBrainDraftsByFeedIDs :many
 SELECT id, feed_id, content, provenance_id, validation_status, validation_details,
-       warnings, kanban_job_id, status, created_at, updated_at
+       warnings, persona_id, kanban_job_id, status, created_at, updated_at
 FROM facebook.brain_drafts
 WHERE feed_id = ANY($1::uuid[])
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListBrainDraftsByFeedIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]FacebookBrainDraft, error) {
+type ListBrainDraftsByFeedIDsRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	FeedID            pgtype.UUID        `json:"feed_id"`
+	Content           string             `json:"content"`
+	ProvenanceID      string             `json:"provenance_id"`
+	ValidationStatus  string             `json:"validation_status"`
+	ValidationDetails []byte             `json:"validation_details"`
+	Warnings          []byte             `json:"warnings"`
+	PersonaID         string             `json:"persona_id"`
+	KanbanJobID       *string            `json:"kanban_job_id"`
+	Status            string             `json:"status"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListBrainDraftsByFeedIDs(ctx context.Context, dollar_1 []pgtype.UUID) ([]ListBrainDraftsByFeedIDsRow, error) {
 	rows, err := q.db.Query(ctx, listBrainDraftsByFeedIDs, dollar_1)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []FacebookBrainDraft{}
+	items := []ListBrainDraftsByFeedIDsRow{}
 	for rows.Next() {
-		var i FacebookBrainDraft
+		var i ListBrainDraftsByFeedIDsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.FeedID,
@@ -301,6 +335,7 @@ func (q *Queries) ListBrainDraftsByFeedIDs(ctx context.Context, dollar_1 []pgtyp
 			&i.ValidationStatus,
 			&i.ValidationDetails,
 			&i.Warnings,
+			&i.PersonaID,
 			&i.KanbanJobID,
 			&i.Status,
 			&i.CreatedAt,

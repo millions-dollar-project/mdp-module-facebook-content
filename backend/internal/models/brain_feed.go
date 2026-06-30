@@ -68,8 +68,13 @@ type BrainDraftRow struct {
 	ProvenanceID     string
 	ValidationStatus string
 	Warnings         []string
-	KanbanJobID      string
-	Status           string
+	// PersonaID is the AI persona (model) that produced this draft.
+	// The Kanban tab renders it as a chip on each card so the user can
+	// tell at a glance which model wrote the post. Empty for legacy
+	// rows that pre-date the persona-aware generate flow.
+	PersonaID   string
+	KanbanJobID string
+	Status      string
 }
 
 // IngestResult summarizes a batch ingest.

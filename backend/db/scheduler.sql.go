@@ -18,12 +18,33 @@ SET status = 'CANCELLED',
 WHERE id = $1 AND status = 'SCHEDULED'
 RETURNING id, page_id, content, image_url, media_urls, status, scheduled_at,
           post_type, trend_reference, ai_generated, engagement_prediction,
-          campaign_id, facebook_post_id, error_message, created_at, updated_at
+          campaign_id, facebook_post_id, error_message, kit_account_id,
+          created_at, updated_at
 `
 
-func (q *Queries) CancelSchedule(ctx context.Context, id pgtype.UUID) (FacebookScheduledPost, error) {
+type CancelScheduleRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CancelSchedule(ctx context.Context, id pgtype.UUID) (CancelScheduleRow, error) {
 	row := q.db.QueryRow(ctx, cancelSchedule, id)
-	var i FacebookScheduledPost
+	var i CancelScheduleRow
 	err := row.Scan(
 		&i.ID,
 		&i.PageID,
@@ -39,6 +60,7 @@ func (q *Queries) CancelSchedule(ctx context.Context, id pgtype.UUID) (FacebookS
 		&i.CampaignID,
 		&i.FacebookPostID,
 		&i.ErrorMessage,
+		&i.KitAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -48,14 +70,16 @@ func (q *Queries) CancelSchedule(ctx context.Context, id pgtype.UUID) (FacebookS
 const createScheduled = `-- name: CreateScheduled :one
 INSERT INTO facebook.scheduled_posts (
   page_id, content, image_url, media_urls, status, scheduled_at,
-  post_type, trend_reference, ai_generated, engagement_prediction, campaign_id
+  post_type, trend_reference, ai_generated, engagement_prediction,
+  campaign_id, kit_account_id
 ) VALUES (
   $1, $2, $3, $4, 'SCHEDULED', $5,
-  $6, $7, $8, $9, $10
+  $6, $7, $8, $9, $10, $11
 )
 RETURNING id, page_id, content, image_url, media_urls, status, scheduled_at,
           post_type, trend_reference, ai_generated, engagement_prediction,
-          campaign_id, facebook_post_id, error_message, created_at, updated_at
+          campaign_id, facebook_post_id, error_message, kit_account_id,
+          created_at, updated_at
 `
 
 type CreateScheduledParams struct {
@@ -69,9 +93,30 @@ type CreateScheduledParams struct {
 	AiGenerated          bool               `json:"ai_generated"`
 	EngagementPrediction []byte             `json:"engagement_prediction"`
 	CampaignID           *string            `json:"campaign_id"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
 }
 
-func (q *Queries) CreateScheduled(ctx context.Context, arg CreateScheduledParams) (FacebookScheduledPost, error) {
+type CreateScheduledRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateScheduled(ctx context.Context, arg CreateScheduledParams) (CreateScheduledRow, error) {
 	row := q.db.QueryRow(ctx, createScheduled,
 		arg.PageID,
 		arg.Content,
@@ -83,8 +128,9 @@ func (q *Queries) CreateScheduled(ctx context.Context, arg CreateScheduledParams
 		arg.AiGenerated,
 		arg.EngagementPrediction,
 		arg.CampaignID,
+		arg.KitAccountID,
 	)
-	var i FacebookScheduledPost
+	var i CreateScheduledRow
 	err := row.Scan(
 		&i.ID,
 		&i.PageID,
@@ -100,6 +146,7 @@ func (q *Queries) CreateScheduled(ctx context.Context, arg CreateScheduledParams
 		&i.CampaignID,
 		&i.FacebookPostID,
 		&i.ErrorMessage,
+		&i.KitAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -110,14 +157,35 @@ const getScheduled = `-- name: GetScheduled :one
 SELECT
   id, page_id, content, image_url, media_urls, status, scheduled_at,
   post_type, trend_reference, ai_generated, engagement_prediction,
-  campaign_id, facebook_post_id, error_message, created_at, updated_at
+  campaign_id, facebook_post_id, error_message, kit_account_id,
+  created_at, updated_at
 FROM facebook.scheduled_posts
 WHERE id = $1
 `
 
-func (q *Queries) GetScheduled(ctx context.Context, id pgtype.UUID) (FacebookScheduledPost, error) {
+type GetScheduledRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetScheduled(ctx context.Context, id pgtype.UUID) (GetScheduledRow, error) {
 	row := q.db.QueryRow(ctx, getScheduled, id)
-	var i FacebookScheduledPost
+	var i GetScheduledRow
 	err := row.Scan(
 		&i.ID,
 		&i.PageID,
@@ -133,6 +201,7 @@ func (q *Queries) GetScheduled(ctx context.Context, id pgtype.UUID) (FacebookSch
 		&i.CampaignID,
 		&i.FacebookPostID,
 		&i.ErrorMessage,
+		&i.KitAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -143,25 +212,46 @@ const listDueScheduled = `-- name: ListDueScheduled :many
 SELECT
   id, page_id, content, image_url, media_urls, status, scheduled_at,
   post_type, trend_reference, ai_generated, engagement_prediction,
-  campaign_id, facebook_post_id, error_message, created_at, updated_at
+  campaign_id, facebook_post_id, error_message, kit_account_id,
+  created_at, updated_at
 FROM facebook.scheduled_posts
 WHERE status = 'SCHEDULED' AND scheduled_at <= now()
 ORDER BY scheduled_at ASC
 LIMIT $1
 `
 
+type ListDueScheduledRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
 // Worker query: returns up to N SCHEDULED rows whose scheduled_at is past.
 // Returns 0..N rows; the worker then attempts to claim each via
 // MarkSchedulePublishing (which acts as the lock).
-func (q *Queries) ListDueScheduled(ctx context.Context, limit int32) ([]FacebookScheduledPost, error) {
+func (q *Queries) ListDueScheduled(ctx context.Context, limit int32) ([]ListDueScheduledRow, error) {
 	rows, err := q.db.Query(ctx, listDueScheduled, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []FacebookScheduledPost{}
+	items := []ListDueScheduledRow{}
 	for rows.Next() {
-		var i FacebookScheduledPost
+		var i ListDueScheduledRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.PageID,
@@ -177,6 +267,7 @@ func (q *Queries) ListDueScheduled(ctx context.Context, limit int32) ([]Facebook
 			&i.CampaignID,
 			&i.FacebookPostID,
 			&i.ErrorMessage,
+			&i.KitAccountID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -194,20 +285,41 @@ const listScheduled = `-- name: ListScheduled :many
 SELECT
   id, page_id, content, image_url, media_urls, status, scheduled_at,
   post_type, trend_reference, ai_generated, engagement_prediction,
-  campaign_id, facebook_post_id, error_message, created_at, updated_at
+  campaign_id, facebook_post_id, error_message, kit_account_id,
+  created_at, updated_at
 FROM facebook.scheduled_posts
 ORDER BY scheduled_at ASC
 `
 
-func (q *Queries) ListScheduled(ctx context.Context) ([]FacebookScheduledPost, error) {
+type ListScheduledRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListScheduled(ctx context.Context) ([]ListScheduledRow, error) {
 	rows, err := q.db.Query(ctx, listScheduled)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []FacebookScheduledPost{}
+	items := []ListScheduledRow{}
 	for rows.Next() {
-		var i FacebookScheduledPost
+		var i ListScheduledRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.PageID,
@@ -223,8 +335,123 @@ func (q *Queries) ListScheduled(ctx context.Context) ([]FacebookScheduledPost, e
 			&i.CampaignID,
 			&i.FacebookPostID,
 			&i.ErrorMessage,
+			&i.KitAccountID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScheduledForKanban = `-- name: ListScheduledForKanban :many
+SELECT
+  sp.id, sp.page_id, sp.content, sp.image_url, sp.media_urls, sp.status,
+  sp.scheduled_at, sp.post_type, sp.trend_reference, sp.ai_generated,
+  sp.engagement_prediction, sp.campaign_id, sp.facebook_post_id,
+  sp.error_message, sp.kit_account_id, sp.created_at, sp.updated_at,
+  bd.id              AS brain_draft_id,
+  bd.persona_id      AS persona_id,
+  bf.content         AS feed_content,
+  bf.full_picture    AS thumbnail,
+  bf.media_urls      AS feed_media_urls
+FROM facebook.scheduled_posts sp
+LEFT JOIN facebook.brain_drafts bd ON bd.kanban_job_id = sp.id::text
+LEFT JOIN facebook.brain_feeds  bf ON bf.id            = bd.feed_id
+WHERE ($1::text = ''
+       OR sp.status = $1)
+  AND ($2::uuid IS NULL
+       OR sp.kit_account_id = $2)
+ORDER BY sp.scheduled_at ASC
+LIMIT $4 OFFSET $3
+`
+
+type ListScheduledForKanbanParams struct {
+	StatusFilter string      `json:"status_filter"`
+	KitAccountID pgtype.UUID `json:"kit_account_id"`
+	Off          int32       `json:"off"`
+	PageSize     int32       `json:"page_size"`
+}
+
+type ListScheduledForKanbanRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	BrainDraftID         pgtype.UUID        `json:"brain_draft_id"`
+	PersonaID            *string            `json:"persona_id"`
+	FeedContent          *string            `json:"feed_content"`
+	Thumbnail            *string            `json:"thumbnail"`
+	FeedMediaUrls        []byte             `json:"feed_media_urls"`
+}
+
+// Enriched list for the Kanban tab. Joins brain_drafts (via
+// kanban_job_id) and brain_feeds (via feed_id) so the UI can render
+// a thumbnail + persona label without N+1 calls.
+//
+// Filters:
+//
+//	$1 = status (empty string = no filter).
+//	$2 = kit_account_id uuid (NULL = no filter).
+//	$3 = limit, $4 = offset.
+//
+// The handler splits a comma-separated status list into N round-trips
+// (cheaper than a complex IN-list SQL with this row count).
+func (q *Queries) ListScheduledForKanban(ctx context.Context, arg ListScheduledForKanbanParams) ([]ListScheduledForKanbanRow, error) {
+	rows, err := q.db.Query(ctx, listScheduledForKanban,
+		arg.StatusFilter,
+		arg.KitAccountID,
+		arg.Off,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListScheduledForKanbanRow{}
+	for rows.Next() {
+		var i ListScheduledForKanbanRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PageID,
+			&i.Content,
+			&i.ImageUrl,
+			&i.MediaUrls,
+			&i.Status,
+			&i.ScheduledAt,
+			&i.PostType,
+			&i.TrendReference,
+			&i.AiGenerated,
+			&i.EngagementPrediction,
+			&i.CampaignID,
+			&i.FacebookPostID,
+			&i.ErrorMessage,
+			&i.KitAccountID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BrainDraftID,
+			&i.PersonaID,
+			&i.FeedContent,
+			&i.Thumbnail,
+			&i.FeedMediaUrls,
 		); err != nil {
 			return nil, err
 		}
@@ -244,7 +471,8 @@ SET status = 'FAILED',
 WHERE id = $1
 RETURNING id, page_id, content, image_url, media_urls, status, scheduled_at,
           post_type, trend_reference, ai_generated, engagement_prediction,
-          campaign_id, facebook_post_id, error_message, created_at, updated_at
+          campaign_id, facebook_post_id, error_message, kit_account_id,
+          created_at, updated_at
 `
 
 type MarkScheduleFailedParams struct {
@@ -252,9 +480,29 @@ type MarkScheduleFailedParams struct {
 	ErrorMessage *string     `json:"error_message"`
 }
 
-func (q *Queries) MarkScheduleFailed(ctx context.Context, arg MarkScheduleFailedParams) (FacebookScheduledPost, error) {
+type MarkScheduleFailedRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) MarkScheduleFailed(ctx context.Context, arg MarkScheduleFailedParams) (MarkScheduleFailedRow, error) {
 	row := q.db.QueryRow(ctx, markScheduleFailed, arg.ID, arg.ErrorMessage)
-	var i FacebookScheduledPost
+	var i MarkScheduleFailedRow
 	err := row.Scan(
 		&i.ID,
 		&i.PageID,
@@ -270,6 +518,7 @@ func (q *Queries) MarkScheduleFailed(ctx context.Context, arg MarkScheduleFailed
 		&i.CampaignID,
 		&i.FacebookPostID,
 		&i.ErrorMessage,
+		&i.KitAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -284,7 +533,8 @@ SET status = 'PUBLISHED',
 WHERE id = $1
 RETURNING id, page_id, content, image_url, media_urls, status, scheduled_at,
           post_type, trend_reference, ai_generated, engagement_prediction,
-          campaign_id, facebook_post_id, error_message, created_at, updated_at
+          campaign_id, facebook_post_id, error_message, kit_account_id,
+          created_at, updated_at
 `
 
 type MarkSchedulePublishedParams struct {
@@ -292,9 +542,29 @@ type MarkSchedulePublishedParams struct {
 	FacebookPostID *string     `json:"facebook_post_id"`
 }
 
-func (q *Queries) MarkSchedulePublished(ctx context.Context, arg MarkSchedulePublishedParams) (FacebookScheduledPost, error) {
+type MarkSchedulePublishedRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) MarkSchedulePublished(ctx context.Context, arg MarkSchedulePublishedParams) (MarkSchedulePublishedRow, error) {
 	row := q.db.QueryRow(ctx, markSchedulePublished, arg.ID, arg.FacebookPostID)
-	var i FacebookScheduledPost
+	var i MarkSchedulePublishedRow
 	err := row.Scan(
 		&i.ID,
 		&i.PageID,
@@ -310,6 +580,7 @@ func (q *Queries) MarkSchedulePublished(ctx context.Context, arg MarkSchedulePub
 		&i.CampaignID,
 		&i.FacebookPostID,
 		&i.ErrorMessage,
+		&i.KitAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -323,14 +594,35 @@ SET status = 'PUBLISHING',
 WHERE id = $1 AND status = 'SCHEDULED'
 RETURNING id, page_id, content, image_url, media_urls, status, scheduled_at,
           post_type, trend_reference, ai_generated, engagement_prediction,
-          campaign_id, facebook_post_id, error_message, created_at, updated_at
+          campaign_id, facebook_post_id, error_message, kit_account_id,
+          created_at, updated_at
 `
+
+type MarkSchedulePublishingRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
 
 // Atomic claim: only succeeds if status is still SCHEDULED.
 // Used by the worker to prevent two workers picking the same row.
-func (q *Queries) MarkSchedulePublishing(ctx context.Context, id pgtype.UUID) (FacebookScheduledPost, error) {
+func (q *Queries) MarkSchedulePublishing(ctx context.Context, id pgtype.UUID) (MarkSchedulePublishingRow, error) {
 	row := q.db.QueryRow(ctx, markSchedulePublishing, id)
-	var i FacebookScheduledPost
+	var i MarkSchedulePublishingRow
 	err := row.Scan(
 		&i.ID,
 		&i.PageID,
@@ -346,6 +638,74 @@ func (q *Queries) MarkSchedulePublishing(ctx context.Context, id pgtype.UUID) (F
 		&i.CampaignID,
 		&i.FacebookPostID,
 		&i.ErrorMessage,
+		&i.KitAccountID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateScheduleScheduledAt = `-- name: UpdateScheduleScheduledAt :one
+UPDATE facebook.scheduled_posts
+SET scheduled_at = $2,
+    updated_at = now()
+WHERE id = $1
+  AND status = 'SCHEDULED'
+  AND post_type = $3
+RETURNING id, page_id, content, image_url, media_urls, status, scheduled_at,
+          post_type, trend_reference, ai_generated, engagement_prediction,
+          campaign_id, facebook_post_id, error_message, kit_account_id,
+          created_at, updated_at
+`
+
+type UpdateScheduleScheduledAtParams struct {
+	ID          pgtype.UUID        `json:"id"`
+	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
+	PostType    string             `json:"post_type"`
+}
+
+type UpdateScheduleScheduledAtRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	PageID               pgtype.UUID        `json:"page_id"`
+	Content              string             `json:"content"`
+	ImageUrl             *string            `json:"image_url"`
+	MediaUrls            []byte             `json:"media_urls"`
+	Status               string             `json:"status"`
+	ScheduledAt          pgtype.Timestamptz `json:"scheduled_at"`
+	PostType             string             `json:"post_type"`
+	TrendReference       *string            `json:"trend_reference"`
+	AiGenerated          bool               `json:"ai_generated"`
+	EngagementPrediction []byte             `json:"engagement_prediction"`
+	CampaignID           *string            `json:"campaign_id"`
+	FacebookPostID       *string            `json:"facebook_post_id"`
+	ErrorMessage         *string            `json:"error_message"`
+	KitAccountID         pgtype.UUID        `json:"kit_account_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Reschedule a SCHEDULED row. $3 asserts post_type so a UI bug can't
+// silently reschedule a personal row via the fanpage handler (or
+// vice versa).
+func (q *Queries) UpdateScheduleScheduledAt(ctx context.Context, arg UpdateScheduleScheduledAtParams) (UpdateScheduleScheduledAtRow, error) {
+	row := q.db.QueryRow(ctx, updateScheduleScheduledAt, arg.ID, arg.ScheduledAt, arg.PostType)
+	var i UpdateScheduleScheduledAtRow
+	err := row.Scan(
+		&i.ID,
+		&i.PageID,
+		&i.Content,
+		&i.ImageUrl,
+		&i.MediaUrls,
+		&i.Status,
+		&i.ScheduledAt,
+		&i.PostType,
+		&i.TrendReference,
+		&i.AiGenerated,
+		&i.EngagementPrediction,
+		&i.CampaignID,
+		&i.FacebookPostID,
+		&i.ErrorMessage,
+		&i.KitAccountID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

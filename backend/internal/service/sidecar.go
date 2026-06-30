@@ -265,6 +265,60 @@ func (c *SidecarClient) PostToGroup(ctx context.Context, profilePath, groupID, c
 	return &out.Result, nil
 }
 
+// PostToProfileResult mirrors PostToGroupResult but lives in its own
+// type so callers reading from the Kanban flow don't accidentally
+// consume a group-post result.
+type PostToProfileResult struct {
+	Success bool   `json:"success"`
+	PostURL string `json:"postUrl"`
+	Error   string `json:"error"`
+}
+
+// PostToProfile asks the sidecar to publish a post to the
+// kit-account's own personal timeline. Used by the FB-content
+// crawl → brain → schedule → Playwright auto-publish flow
+// (post_type='personal' rows). The sidecar drives the visible
+// composer on /me because FB blocks /me/feed via the Graph API for
+// non-page accounts.
+//
+// profilePath is the directory of the kit-account's Chromium
+// profile (the same one used by /account-login/start). mediaURLs
+// are downloaded by the sidecar before upload.
+func (c *SidecarClient) PostToProfile(ctx context.Context, profilePath, caption string, mediaURLs []string) (*PostToProfileResult, error) {
+	body, _ := json.Marshal(map[string]any{
+		"profilePath": expandProfilePath(profilePath),
+		"caption":     caption,
+		"mediaUrls":   mediaURLs,
+		"headless":    true,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/profile-post", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("sidecar profile-post %d: %s", resp.StatusCode, string(b))
+	}
+	var out struct {
+		Success bool               `json:"success"`
+		Result  PostToProfileResult `json:"result"`
+		Error   string             `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if !out.Success {
+		return nil, fmt.Errorf("sidecar profile-post failed: %s", out.Error)
+	}
+	return &out.Result, nil
+}
+
 // KlingGenerateResponse is the envelope from POST /kling/generate.
 type KlingGenerateResponse struct {
 	Success bool     `json:"success"`

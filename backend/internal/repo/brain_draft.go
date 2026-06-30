@@ -25,14 +25,66 @@ func NewBrainDraftRepo(q *db.Queries) *BrainDraftRepo {
 // Insert stores a freshly-generated AI draft and returns the persisted row,
 // including the server-assigned id and timestamps.
 func (r *BrainDraftRepo) Insert(ctx context.Context, arg db.InsertBrainDraftParams) (db.FacebookBrainDraft, error) {
-	return r.q.InsertBrainDraft(ctx, arg)
+	row, err := r.q.InsertBrainDraft(ctx, arg)
+	if err != nil {
+		return db.FacebookBrainDraft{}, err
+	}
+	return insertBrainDraftRowToModel(row), nil
+}
+
+// insertBrainDraftRowToModel maps the INSERT…RETURNING row shape to the
+// shared FacebookBrainDraft model. The two structs differ in one field:
+// the insert row exposes KanbanJobID as a plain string (PostgreSQL
+// guarantees NULL on initial insert), while the model uses *string.
+func insertBrainDraftRowToModel(r db.InsertBrainDraftRow) db.FacebookBrainDraft {
+	return db.FacebookBrainDraft{
+		ID:                r.ID,
+		FeedID:            r.FeedID,
+		Content:           r.Content,
+		ProvenanceID:      r.ProvenanceID,
+		ValidationStatus:  r.ValidationStatus,
+		ValidationDetails: r.ValidationDetails,
+		Warnings:          r.Warnings,
+		Status:            r.Status,
+		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
+		PersonaID:         r.PersonaID,
+	}
 }
 
 // ListByFeedIDs returns drafts whose feed_id is in the given slice,
 // newest first. Used by the Kanban layer to bulk-load drafts for a
 // batch of parent feeds.
 func (r *BrainDraftRepo) ListByFeedIDs(ctx context.Context, feedIDs []pgtype.UUID) ([]db.FacebookBrainDraft, error) {
-	return r.q.ListBrainDraftsByFeedIDs(ctx, feedIDs)
+	rows, err := r.q.ListBrainDraftsByFeedIDs(ctx, feedIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]db.FacebookBrainDraft, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, listBrainDraftRowToModel(row))
+	}
+	return out, nil
+}
+
+// listBrainDraftRowToModel maps the SELECT row shape to the shared
+// FacebookBrainDraft model. Both have identical column sets; only
+// KanbanJobID differs (row uses *string, model uses nullable value).
+func listBrainDraftRowToModel(r db.ListBrainDraftsByFeedIDsRow) db.FacebookBrainDraft {
+	return db.FacebookBrainDraft{
+		ID:                r.ID,
+		FeedID:            r.FeedID,
+		Content:           r.Content,
+		ProvenanceID:      r.ProvenanceID,
+		ValidationStatus:  r.ValidationStatus,
+		ValidationDetails: r.ValidationDetails,
+		Warnings:          r.Warnings,
+		KanbanJobID:       r.KanbanJobID,
+		Status:            r.Status,
+		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
+		PersonaID:         r.PersonaID,
+	}
 }
 
 // MarkPushed stamps the kanban_job_id (returned by the Kanban MCP) onto
@@ -88,7 +140,8 @@ func (r *BrainDraftRepo) CountDraftsByStatus(ctx context.Context) (map[string]in
 
 // InsertRow inserts a brain_draft from a domain model and returns the
 // persisted row as a model. ValidationDetails and Warnings default to empty
-// JSON arrays when not supplied.
+// JSON arrays when not supplied. PersonaID flows through so the Kanban
+// tab can label each card with the AI model that produced it.
 func (r *BrainDraftRepo) InsertRow(ctx context.Context, row models.BrainDraftRow) (models.BrainDraftRow, error) {
 	dbRow, err := r.Insert(ctx, db.InsertBrainDraftParams{
 		FeedID:            stringToUUID(row.FeedID),
@@ -97,6 +150,7 @@ func (r *BrainDraftRepo) InsertRow(ctx context.Context, row models.BrainDraftRow
 		ValidationStatus:  row.ValidationStatus,
 		ValidationDetails: stringSliceToBytes(nil), // default empty array
 		Warnings:          stringSliceToBytes(row.Warnings),
+		PersonaID:         row.PersonaID,
 		Status:            row.Status,
 	})
 	if err != nil {
@@ -140,6 +194,7 @@ func facebookBrainDraftToModel(r db.FacebookBrainDraft) models.BrainDraftRow {
 		ProvenanceID:     r.ProvenanceID,
 		ValidationStatus: r.ValidationStatus,
 		Warnings:         bytesToStringSlice(r.Warnings),
+		PersonaID:        r.PersonaID,
 		KanbanJobID:      strDeref(r.KanbanJobID),
 		Status:           r.Status,
 	}

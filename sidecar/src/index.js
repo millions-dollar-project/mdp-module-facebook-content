@@ -16,6 +16,7 @@ const express = require("express");
 const cors = require("cors");
 const { scrapePage } = require("./scraper");
 const { checkGroupAccess, postToGroup } = require("./publisher");
+const { postToProfile } = require("./publisher-profile");
 const { startLogin, checkSession, cancelSession } = require("./account-login");
 const { generateKlingImages, generateKlingVideos } = require("./kling");
 const { resolveGroupMeta } = require("./group-resolver");
@@ -100,6 +101,25 @@ app.post("/group-post", async (req, res) => {
     res.json({ success: true, result });
   } catch (err) {
     console.error("[group-post]", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── Personal Profile Post ──────────────────────────────────────────
+// Used by the FB-content crawl → brain → schedule → Playwright
+// auto-publish flow. Personal timelines (post_type='personal') go
+// through here so the kit-account's own profile gets the post;
+// fanpage posts still use the Graph API via the Go publisher.
+app.post("/profile-post", async (req, res) => {
+  const { profilePath, caption, mediaUrls, headless = true } = req.body;
+  if (!profilePath || !caption) {
+    return res.status(400).json({ error: "profilePath and caption required" });
+  }
+  try {
+    const result = await postToProfile({ profilePath, caption, mediaUrls, headless });
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error("[profile-post]", err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -95,14 +95,18 @@ func (d *DB) Close() {
 // runMigrationsFromTestDir uses the same migrations/ directory the
 // production code does. We resolve the path relative to this test
 // helper so the helper works regardless of CWD.
+//
+// NB: the helper used to walk up to the legacy `mdp-module-facebook`
+// repo because the test code was originally shared. mdp-module-
+// facebook-content has its own backend/ tree; the test path now
+// points there.
 func runMigrationsFromTestDir(dsn string) error {
 	// testutil/db.go lives at
-	//   <workspace>/mdp-module-facebook/backend/testutil/db.go
-	// Going up 3 levels lands at the workspace root; the migrations
-	// are then under mdp-module-facebook/backend/internal/db/migrations.
+	//   mdp-module-facebook-content/backend/testutil/db.go
+	// Up 1 = backend/, up 2 = backend/internal/, so "internal/db/migrations"
+	// is reached from the parent of this file's directory.
 	_, thisFile, _, _ := runtime.Caller(0)
-	workspace := filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
-	migDir := filepath.Join(workspace, "mdp-module-facebook", "backend", "internal", "db", "migrations")
+	migDir := filepath.Join(filepath.Dir(thisFile), "..", "internal", "db", "migrations")
 	if _, err := os.Stat(migDir); err != nil {
 		return fmt.Errorf("migrations dir not found at %s: %w", migDir, err)
 	}

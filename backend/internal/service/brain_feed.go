@@ -294,7 +294,12 @@ func (s *BrainFeedService) Generate(ctx context.Context, feedIDs []string, perso
 				ProvenanceID:     res.ProvenanceID,
 				ValidationStatus: res.Validation.Status,
 				Warnings:         res.Warnings,
-				Status:           status,
+				// personaID is the AI model/persona the user picked in
+				// the SchedulePostModal. The Kanban tab renders it as a
+				// chip so the user can see which model produced each
+				// post at a glance.
+				PersonaID: personaID,
+				Status:    status,
 			})
 			if err != nil {
 				mu.Lock()

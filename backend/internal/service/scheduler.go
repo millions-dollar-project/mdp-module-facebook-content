@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/repo"
@@ -14,16 +17,27 @@ import (
 // Scheduler is the business-logic surface for the scheduled-posts
 // resource. It writes to the queue (via the SchedulerRepo) and lets
 // the Worker goroutine (service/worker.go) flip rows to PUBLISHING.
+//
+// Since migration 028 the table can carry personal-profile posts
+// (post_type='personal'). Those have a kit_account_id instead of a
+// page_id, and they publish through the sidecar's /profile-post
+// Playwright route instead of the Graph API. The Scheduler routes
+// the two cases on row.PostType.
 type Scheduler struct {
-	repo  repo.SchedulerRepo
-	pages repo.PagesRepo
-	pub   *Publisher
-	log   *slog.Logger
+	repo    repo.SchedulerRepo
+	pages   repo.PagesRepo
+	pub     *Publisher
+	sidecar *SidecarClient
+	kit     KitLoader
+	log     *slog.Logger
 }
 
-// NewScheduler builds a Scheduler service.
-func NewScheduler(r repo.SchedulerRepo, p repo.PagesRepo, pub *Publisher, log *slog.Logger) *Scheduler {
-	return &Scheduler{repo: r, pages: p, pub: pub, log: log}
+// NewScheduler builds a Scheduler service. kit and sidecar are only
+// required for post_type='personal' rows; if a caller only schedules
+// fanpage posts they may pass nil for both (the personal code path
+// returns a clear error when invoked).
+func NewScheduler(r repo.SchedulerRepo, p repo.PagesRepo, pub *Publisher, sidecar *SidecarClient, kit KitLoader, log *slog.Logger) *Scheduler {
+	return &Scheduler{repo: r, pages: p, pub: pub, sidecar: sidecar, kit: kit, log: log}
 }
 
 // List returns all scheduled posts.
@@ -31,9 +45,14 @@ func (s *Scheduler) List(ctx context.Context) ([]models.ScheduledPost, error) {
 	return s.repo.List(ctx)
 }
 
-// Schedule creates a new SCHEDULED row. pageId here is the *Facebook*
-// page id (not our internal uuid) — the plugin sends what the user
-// sees in the UI, not the database row id. We resolve it here.
+// Schedule creates a new SCHEDULED fanpage row. pageId here is the
+// *Facebook* page id (not our internal uuid) — the plugin sends what
+// the user sees in the UI, not the database row id. We resolve it
+// here.
+//
+// For personal-profile posts (the FB-content crawl → brain → schedule
+// flow) use SchedulePersonal instead — it takes a kit account UUID
+// and produces a post_type='personal' row with no page_id.
 func (s *Scheduler) Schedule(ctx context.Context, fbPageID, content string, scheduledAt time.Time) (models.ScheduledPost, error) {
 	if content == "" {
 		return models.ScheduledPost{}, errors.New("content is required")
@@ -56,7 +75,65 @@ func (s *Scheduler) Schedule(ctx context.Context, fbPageID, content string, sche
 	})
 }
 
-// PublishNow is the "Đăng ngay" button on a scheduled row.
+// SchedulePersonal inserts a SCHEDULED row targeting the kit-account's
+// own personal timeline. The sidecar will use the kit account's
+// Chromium profile (resolved via KitLoader.LookupByUUID) to drive
+// /me. accountID is the SHA-1 v5 UUID; the loader maps it to a
+// KitAccountSnapshot whose ProfilePath is the persistent-context dir.
+func (s *Scheduler) SchedulePersonal(ctx context.Context, accountID string, content string, scheduledAt time.Time, mediaURLs []string) (models.ScheduledPost, error) {
+	if s.kit == nil {
+		return models.ScheduledPost{}, errors.New("kit loader not configured")
+	}
+	if accountID == "" {
+		return models.ScheduledPost{}, errors.New("accountId is required")
+	}
+	if content == "" {
+		return models.ScheduledPost{}, errors.New("content is required")
+	}
+	if scheduledAt.Before(time.Now().Add(-1 * time.Minute)) {
+		return models.ScheduledPost{}, errors.New("scheduledAt must be in the future")
+	}
+	uid, err := uuid.Parse(accountID)
+	if err != nil {
+		return models.ScheduledPost{}, fmt.Errorf("invalid kit account uuid: %w", err)
+	}
+	if _, err := s.kit.LookupByUUID(ctx, uid); err != nil {
+		return models.ScheduledPost{}, fmt.Errorf("kit account not found: %w", err)
+	}
+	media := json.RawMessage("[]")
+	if len(mediaURLs) > 0 {
+		b, mErr := json.Marshal(mediaURLs)
+		if mErr != nil {
+			return models.ScheduledPost{}, mErr
+		}
+		media = b
+	}
+	kitID := accountID
+	return s.repo.Schedule(ctx, models.ScheduledPost{
+		Content:      content,
+		MediaURLs:    media,
+		ScheduledAt:  scheduledAt,
+		PostType:     models.PostTypePersonal,
+		AIGenerated:  true,
+		KitAccountID: &kitID,
+	})
+}
+
+// Reschedule moves a SCHEDULED row to a new time. The postType guard
+// is enforced by the SQL UPDATE (see repo.UpdateScheduledAt) so a
+// caller that asserts the wrong post type gets ErrNotFound back
+// instead of silently mutating the other table flavor's row.
+func (s *Scheduler) Reschedule(ctx context.Context, id string, postType models.PostType, scheduledAt time.Time) (models.ScheduledPost, error) {
+	if scheduledAt.Before(time.Now().Add(-1 * time.Minute)) {
+		return models.ScheduledPost{}, errors.New("scheduledAt must be in the future")
+	}
+	return s.repo.UpdateScheduledAt(ctx, id, scheduledAt, postType)
+}
+
+// PublishNow is the "Đăng ngay" button on a scheduled row. Branches on
+// post_type:
+//   - "personal" → sidecar.PostToProfile (Playwright /me composer)
+//   - anything else → Publisher.PublishContent (Graph API to a Page)
 func (s *Scheduler) PublishNow(ctx context.Context, id string) (models.ScheduledPost, error) {
 	row, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -64,6 +141,9 @@ func (s *Scheduler) PublishNow(ctx context.Context, id string) (models.Scheduled
 	}
 	if row.Status != models.ScheduleStatusScheduled {
 		return models.ScheduledPost{}, fmt.Errorf("cannot publish: status is %s", row.Status)
+	}
+	if row.PostType == models.PostTypePersonal {
+		return s.publishPersonal(ctx, row)
 	}
 	page, err := s.pages.Get(ctx, row.PageID)
 	if err != nil {
@@ -74,6 +154,44 @@ func (s *Scheduler) PublishNow(ctx context.Context, id string) (models.Scheduled
 		return models.ScheduledPost{}, err
 	}
 	return s.repo.MarkPublished(ctx, id, fbPostID)
+}
+
+// publishPersonal is the Playwright /me path. Resolves the row's
+// kit_account_id → KitAccountSnapshot → ProfilePath, then calls
+// sidecar.PostToProfile. The post URL is stored in
+// scheduled_posts.facebook_post_id (the column is reused: it
+// represents "external post id" for fanpage rows and "external post
+// URL" for personal rows).
+func (s *Scheduler) publishPersonal(ctx context.Context, row models.ScheduledPost) (models.ScheduledPost, error) {
+	if s.kit == nil || s.sidecar == nil {
+		return models.ScheduledPost{}, errors.New("kit loader + sidecar required for personal posts")
+	}
+	if row.KitAccountID == nil || *row.KitAccountID == "" {
+		return models.ScheduledPost{}, errors.New("personal row missing kit_account_id")
+	}
+	uid, err := uuid.Parse(*row.KitAccountID)
+	if err != nil {
+		return models.ScheduledPost{}, fmt.Errorf("invalid kit account uuid: %w", err)
+	}
+	snap, err := s.kit.LookupByUUID(ctx, uid)
+	if err != nil {
+		return models.ScheduledPost{}, fmt.Errorf("kit account lookup: %w", err)
+	}
+	if snap.ProfilePath == "" {
+		return models.ScheduledPost{}, errors.New("kit account has no ProfilePath; re-login required")
+	}
+	var media []string
+	if len(row.MediaURLs) > 0 {
+		_ = json.Unmarshal(row.MediaURLs, &media)
+	}
+	res, err := s.sidecar.PostToProfile(ctx, snap.ProfilePath, row.Content, media)
+	if err != nil {
+		return models.ScheduledPost{}, err
+	}
+	if !res.Success {
+		return models.ScheduledPost{}, errors.New(res.Error)
+	}
+	return s.repo.MarkPublished(ctx, row.ID, res.PostURL)
 }
 
 // Cancel is the "Hủy" button.

@@ -28,6 +28,8 @@ import (
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/service"
 	sidecarctl "github.com/millions-dollar-project/mdp-module-facebook/backend/internal/sidecar"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/telemetry"
+
+	kitaccounts "github.com/millions-dollar-project/mdp-kit/go/kit-accounts"
 )
 
 func main() {
@@ -116,9 +118,18 @@ func main() {
 		commentMonitor = service.NewCommentMonitor(commentsRepo, pagesRepo, graph, aiSvc, log)
 	}
 
-	// Scheduled-posts worker
+	// Scheduled-posts worker. KitLoader + SidecarClient are required for
+	// post_type='personal' rows (Worker calls sidecar.PostToProfile via
+	// the kit account's Chromium profile). Both may be nil at startup
+	// (e.g. sidecar autostart failed) — in that case personal rows fail
+	// loudly with a clear error rather than silently hanging.
 	publisher := service.NewPublisher(graph, postsRepo, pagesRepo, log)
-	worker := service.NewWorker(schedRepo, pagesRepo, publisher, cfg.WorkerInterval, log)
+	kitLoader := service.NewKitLoader(kitaccounts.RootFor(kitaccounts.PlatformFacebook))
+	var sidecarClient *service.SidecarClient
+	if cfg.SidecarURL != "" {
+		sidecarClient = service.NewSidecarClient(cfg.SidecarURL)
+	}
+	worker := service.NewWorker(schedRepo, pagesRepo, publisher, sidecarClient, kitLoader, cfg.WorkerInterval, log)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 	go worker.Run(workerCtx)
