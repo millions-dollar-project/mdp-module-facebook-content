@@ -32,6 +32,13 @@ export interface StudioFrameProps {
    * switch tabs after auto-ingest.
    */
   crawlSlot: (helpers: { onOpenBrainFeed?: () => void }) => React.ReactNode;
+  /**
+   * Slot to render inside the Kanban pane. When omitted the legacy
+   * `KanbanBoard` from @mdp-private/kit-ui is shown (the historical
+   * composer-flow cards). When supplied it receives the active kit
+   * account id so it can filter the scheduled-posts query.
+   */
+  kanbanSlot?: (helpers: { accountId?: string }) => React.ReactNode;
 }
 
 const KANBAN_COLUMNS: KanbanColumn[] = [
@@ -51,6 +58,7 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
     onDraftsReady,
     onOpenBrainFeed,
     crawlSlot,
+    kanbanSlot,
   } = props;
 
   const [localActive, setLocalActive] = useState('brain');
@@ -73,7 +81,11 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
       {active === 'brain' && brainContent}
       {active === 'kanban' && (
         <div className="studio-pane active" data-testid="kanban-pane">
-          <KanbanBoard cards={kanbanCards} columns={KANBAN_COLUMNS} />
+          {kanbanSlot ? (
+            kanbanSlot({ accountId: undefined })
+          ) : (
+            <KanbanBoard cards={kanbanCards} columns={KANBAN_COLUMNS} />
+          )}
         </div>
       )}
       {active === 'crawl' && (

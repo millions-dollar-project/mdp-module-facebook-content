@@ -20,7 +20,6 @@ import type { RepostCampaign, FBAccount, FBGroup } from '../lib/types';
 import { AccountLoginDialog } from './AccountLoginDialog';
 import { PublishView } from './PublishView';
 import { RepostCrawlSection } from './RepostCrawlSection';
-import { RepostPlanModal } from './RepostPlanModal';
 
 type Mode = 'campaigns' | 'accounts' | 'groups' | 'crawl' | 'publish' | 'kling';
 
@@ -369,9 +368,10 @@ export const RepostTab: React.FC<{ defaultMode?: Mode; hideSubTabs?: boolean }> 
 
   // Crawl is handled entirely by <RepostCrawlSection /> (V2 form) — no state here.
 
-  // V2 state
-  const [planModalOpen, setPlanModalOpen] = React.useState(false);
-  const [planPost, setPlanPost] = React.useState<{ content: string; mediaUrls: string[]; permalink: string } | null>(null);
+  // V2 state — schedule flow moved to <SchedulePostModal> inside the
+  // crawl section itself, so the legacy plan modal/planPost state is
+  // gone. The legacy per-post `RepostPlanModal` is kept on disk for
+  // any callers outside this file (none today).
   // When the user creates a schedule from the crawl section, remember
   // the first accountId they picked so <PublishView> can pre-select
   // that account's queue tab. Cleared after PublishView consumes it.
@@ -519,11 +519,6 @@ export const RepostTab: React.FC<{ defaultMode?: Mode; hideSubTabs?: boolean }> 
       {mode === 'crawl' && (
         <RepostCrawlSection
           accounts={accounts}
-          groups={groups}
-          onSchedule={(post) => {
-            setPlanPost({ content: post.content, mediaUrls: post.mediaUrls, permalink: post.permalink });
-            setPlanModalOpen(true);
-          }}
         />
       )}
 
@@ -679,20 +674,10 @@ export const RepostTab: React.FC<{ defaultMode?: Mode; hideSubTabs?: boolean }> 
         </div>
       </Modal>
 
-      {/* Plan modal (V2) */}
-      <RepostPlanModal
-        open={planModalOpen}
-        onClose={() => setPlanModalOpen(false)}
-        post={planPost}
-        accounts={accounts}
-        groups={groups}
-        onCreated={(_campaign, firstAccountId) => {
-          reloadCampaigns();
-          toast.success('Đã tạo lịch — chuyển sang tab "Đăng nhóm" để xem hàng chờ');
-          setPendingPublishAccountId(firstAccountId || null);
-          setMode('publish');
-        }}
-      />
+      {/* Plan modal (V2) — removed: the crawl section's
+          <SchedulePostModal> now drives the schedule creation flow
+          end-to-end. The legacy per-post <RepostPlanModal> lives on
+          disk for callers outside this file. */}
 
       {/* Account login dialog (V2) */}
       {loginAccount && (

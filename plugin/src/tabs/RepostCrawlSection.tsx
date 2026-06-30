@@ -28,6 +28,7 @@ import { openExternal } from '../lib/external';
 import type { FBAccount, CrawledPostReal } from '../lib/types';
 import { useBrainIngest } from '../hooks/useBrainIngest';
 import { useFBAccounts, createAccount, pollAccountLoginStatus } from '../hooks/useRepost';
+import { SchedulePostModal } from './SchedulePostModal';
 
 type CrawlMode = 'page' | 'account';
 
@@ -59,8 +60,6 @@ export interface CrawledPost {
 
 interface Props {
   accounts: FBAccount[];
-  groups: { id: string; groupId: string; name?: string | null }[];
-  onSchedule: (post: CrawledPost) => void;
   /**
    * Optional callback to switch the parent tab to "Brain Feed".
    * Wires the "Mở Brain Feed" chip after a successful auto-ingest.
@@ -104,7 +103,7 @@ const parseDate = (s: string | number | null | undefined): Date | null => {
   return isNaN(d.getTime()) || d.getTime() <= 0 ? null : d;
 };
 
-export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpenBrainFeed }) => {
+export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
   // Hardcoded newsfeed URL — Phase 2 user request: "không dùng crawler,
   // cứng hiển thị facebook.com làm crawl newsfeed". Declared FIRST so
   // every useMemo / handler closure below can capture it without
@@ -162,6 +161,10 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
   });
   const [accShowAdvanced, setAccShowAdvanced] = React.useState(false);
   const [accSubmitting, setAccSubmitting] = React.useState(false);
+  // SchedulePostModal — opens when the user clicks "Tạo lịch đăng (N)"
+  // in the card-list header. The modal lists every selected feed id and
+  // N auto-filled time slots, then posts to /brain/generate-and-schedule.
+  const [scheduleModalOpen, setScheduleModalOpen] = React.useState(false);
   const [accLoginStatus, setAccLoginStatus] = React.useState<string>('');
   const [accLoginErr, setAccLoginErr] = React.useState<string>('');
 
@@ -599,22 +602,29 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
     setEditingContent('');
   };
 
-  const handleSchedule = (post: CrawledPost) => {
-    if (!fbAccounts.length || !groups.length) {
-      toast.warning('Cần ít nhất 1 tài khoản và 1 nhóm để lên lịch');
-      return;
-    }
-    onSchedule(post);
-  };
-
   const handleScheduleSelected = () => {
     if (selected.size === 0) {
       toast.warning('Chọn ít nhất 1 bài để lên lịch');
       return;
     }
-    const first = sortedPosts.find((p) => selected.has(p.id));
-    if (first) handleSchedule(first);
+    if (!fbAccounts || fbAccounts.length === 0) {
+      toast.warning('Cần ít nhất 1 kit-account để lên lịch');
+      return;
+    }
+    setScheduleModalOpen(true);
   };
+
+  const handleCloseScheduleModal = React.useCallback(() => {
+    setScheduleModalOpen(false);
+  }, []);
+
+  const handleScheduleCreated = React.useCallback(() => {
+    // SchedulePostModal already fires `mdp:open-kanban` so the parent
+    // (FacebookView) can switch tabs. Just close the modal + clear
+    // selection so the user sees their scheduled posts immediately.
+    setSelected(new Set());
+    toast.success('Đã lên lịch — mở Kanban để theo dõi.');
+  }, [toast]);
 
   // Compute prerequisite status for 'account' mode so the warning
   // panel and button-disable can reflect it without re-fetching.
@@ -1106,6 +1116,22 @@ export const RepostCrawlSection: React.FC<Props> = ({ groups, onSchedule, onOpen
           </button>
         </div>
       )}
+
+      {/*
+        SchedulePostModal — opens when the user clicks "Tạo lịch đăng (N)".
+        We pass every selected feed id (sorted in selection order so the
+        generated drafts align with the visible cards), the first
+        kit-account's SHA-1 v5 UUID (the only account the Worker will
+        publish to for v1), and an onCreated callback that clears the
+        selection so the cards don't linger as "checked".
+      */}
+      <SchedulePostModal
+        open={scheduleModalOpen}
+        onClose={handleCloseScheduleModal}
+        feedIds={sortedPosts.filter((p) => selected.has(p.id)).map((p) => p.id)}
+        accountId={fbAccounts?.[0]?.uuid ?? ''}
+        onCreated={handleScheduleCreated}
+      />
     </div>
   );
 };

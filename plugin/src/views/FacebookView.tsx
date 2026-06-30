@@ -1,10 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { StudioFrame } from './StudioFrame';
 import { FormField, PillGroup, PlatformIcon } from '@mdp-private/kit-ui';
 import type { PillOption, KanbanCardData } from '@mdp-private/kit-ui';
 import { useToast } from '../components';
-import { useFBAccounts, useFBGroups } from '../hooks';
-import { RepostCrawlSection, type CrawledPost } from '../tabs/RepostCrawlSection';
+import { useFBAccounts } from '../hooks';
+import { RepostCrawlSection } from '../tabs/RepostCrawlSection';
+import { KanbanTab } from '../tabs/KanbanTab';
 
 const SEED_CARDS: KanbanCardData[] = [
   { id: 'fb-1', title: 'Aula F75 deal roundup', desc: 'Tổng hợp deal bàn phím cơ', status: 'todo', profile: 'Affiliate Tech Page', date: '2026-06-22', platform: 'facebook' },
@@ -243,16 +244,9 @@ export function FacebookView(): React.ReactElement {
   const handleOpenBrainFeed = React.useCallback(() => setActiveTab('brain-feed'), []);
 
   // RepostCrawlSection needs real account/group lists to drive its
-  // crawl form + schedule modal. We pass data straight through.
+  // crawl form. The schedule modal is self-contained now (it
+  // dispatches `mdp:open-kanban` so we switch the tab from here).
   const { data: accounts } = useFBAccounts();
-  const { data: groups } = useFBGroups();
-
-  // TODO: wire to a real draft modal (e.g. RepostPlanModal) once the
-  // user picks a crawled post. For now we just toast so the click is
-  // visible to confirm the integration is alive.
-  const handleSchedule = useCallback((post: CrawledPost) => {
-    toast.info(`Đã chọn bài: ${post.permalink}`);
-  }, [toast]);
 
   // Bridge for legacy mounts of <RepostCrawlSection /> (e.g. inside
   // RepostTab) where the parent can't easily pass onOpenBrainFeed down.
@@ -263,6 +257,16 @@ export function FacebookView(): React.ReactElement {
     const handler = () => setActiveTab('brain-feed');
     window.addEventListener('mdp:open-brain-feed', handler);
     return () => window.removeEventListener('mdp:open-brain-feed', handler);
+  }, []);
+
+  // SchedulePostModal dispatches mdp:open-kanban when the user hits OK;
+  // we listen and switch the active tab to the new Kanban so they can
+  // watch the slots get published.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => setActiveTab('kanban');
+    window.addEventListener('mdp:open-kanban', handler);
+    return () => window.removeEventListener('mdp:open-kanban', handler);
   }, []);
 
   return (
@@ -292,11 +296,10 @@ export function FacebookView(): React.ReactElement {
       crawlSlot={({ onOpenBrainFeed: slotOpenBrainFeed }) => (
         <RepostCrawlSection
           accounts={accounts}
-          groups={groups}
-          onSchedule={handleSchedule}
           onOpenBrainFeed={slotOpenBrainFeed}
         />
       )}
+      kanbanSlot={() => <KanbanTab />}
     />
   );
 }
