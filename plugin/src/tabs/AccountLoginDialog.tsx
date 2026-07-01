@@ -49,12 +49,16 @@ export const AccountLoginDialog: React.FC<Props> = ({ open, onClose, profilePath
   // Auto-start when the dialog opens.
   React.useEffect(() => {
     if (open && !session && !starting) {
-      void start(effectiveProfilePath, email);
+      // Pass accountName so the sidecar persists the kit-account bundle
+      // under ~/mdp-data/accounts/<name>/ once the user logs in. Without
+      // this the sidecar's persistKitAccount() short-circuits and the
+      // account never appears in the list.
+      void start(effectiveProfilePath, email, accountName);
     }
     if (!open && session) {
       reset();
     }
-  }, [open, session, starting, effectiveProfilePath, email, start, reset]);
+  }, [open, session, starting, effectiveProfilePath, email, accountName, start, reset]);
 
   React.useEffect(() => {
     if (session?.status === 'completed') {

@@ -167,6 +167,26 @@ app.post("/account-login/cancel", async (req, res) => {
   res.json({ success: true, ...(await cancelSession(String(sessionId))) });
 });
 
+// /account-login/persist — explicitly write meta.json + appstate.json
+// for a previously-completed login session. Idempotent. The kit-accounts
+// Go handler proxies this route from POST /kit-accounts/login/persist so
+// the plugin can force a write after polling `status=completed` (which
+// happens after persistKitAccount() ran internally). Without this route,
+// a crashed sidecar between persistKitAccount and the status flip could
+// leave the UI seeing `completed` but no on-disk account.
+app.post("/account-login/persist", async (req, res) => {
+  const { sessionId, name, profilePath } = req.body || {};
+  if (!sessionId) return res.status(400).json({ error: "sessionId required" });
+  if (!name) return res.status(400).json({ error: "name required" });
+  try {
+    const out = await persistSession(String(sessionId), { name, profilePath });
+    res.json({ success: true, ...out });
+  } catch (err) {
+    console.error("[account-login/persist]", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[sidecar] Listening on http://localhost:${PORT}`);
 });

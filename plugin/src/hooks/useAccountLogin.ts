@@ -17,7 +17,7 @@ export interface UseAccountLoginState {
   session: AccountLoginSession | null;
   starting: boolean;
   error: string | null;
-  start: (profilePath: string, email?: string) => Promise<void>;
+  start: (profilePath: string, email?: string, name?: string) => Promise<void>;
   cancel: () => Promise<void>;
   reset: () => void;
 }
@@ -40,13 +40,17 @@ export function useAccountLogin(): UseAccountLoginState {
   useEffect(() => stopPolling, [stopPolling]);
 
   const start = useCallback(
-    async (profilePath: string, email?: string) => {
+    async (profilePath: string, email?: string, name?: string) => {
       setStarting(true);
       setError(null);
       try {
+        // Forward `name` so the sidecar persists kit-accounts artifacts
+        // under ~/mdp-data/accounts/<name>/ once the URL leaves /login.
+        // Without it the sidecar's persistKitAccount() is skipped and
+        // the row never appears in GET /kit-accounts.
         const res = await fbFetch<{ sessionId: string; status: string }>(
           'account-login/start',
-          { method: 'POST', body: { profilePath, email } },
+          { method: 'POST', body: { profilePath, email, name } },
         );
         const next: AccountLoginSession = {
           sessionId: res.sessionId,
@@ -63,6 +67,20 @@ export function useAccountLogin(): UseAccountLoginState {
             setSession(status);
             if (status.status !== 'pending' && status.status !== 'running') {
               stopPolling();
+              // Defense in depth: if the session completed, force a
+              // re-persist via /kit-accounts/login/persist so the
+              // on-disk artifacts are present even if the sidecar's
+              // auto-persist raced the status flip.
+              if (status.status === 'completed' && name) {
+                try {
+                  await fbFetch('kit-accounts/login/persist', {
+                    method: 'POST',
+                    body: { sessionId: res.sessionId, name },
+                  });
+                } catch {
+                  // best-effort
+                }
+              }
             }
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));

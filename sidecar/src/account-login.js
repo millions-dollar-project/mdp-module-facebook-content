@@ -202,7 +202,45 @@ async function cancelSession(sessionId) {
   return { cancelled: true };
 }
 
-module.exports = { startLogin, checkSession, cancelSession, expandHome, persistKitAccount };
+/**
+ * Explicit persist — exposed via POST /account-login/persist. Two paths:
+ *
+ *   1. Session's browser is still alive (status=completed but persist
+ *      failed earlier): reuse it via the existing persistKitAccount.
+ *   2. Browser was closed after completion: re-launch a headless
+ *      Chromium pointed at the persistent profile, extract cookies from
+ *      the on-disk profile, and persist.
+ *
+ * Both paths converge on persistKitAccount so the on-disk layout stays
+ * identical to the auto-persist inside _runLoginFlow.
+ */
+async function persistSession(sessionId, { name, profilePath } = {}) {
+  if (!name) throw new Error("name required");
+  const s = sessions.get(sessionId);
+  if (!s) throw new Error(`session ${sessionId} not found`);
+  const effectiveProfile = expandHome(profilePath || s.profilePath);
+
+  // Path 1: live browser in this session.
+  if (s._browser && s._page) {
+    await persistKitAccount(s._browser, s._page, name, effectiveProfile);
+    return { persisted: true, path: "live-browser" };
+  }
+
+  // Path 2: re-open headless against the persistent profile.
+  const browser = await chromium.launchPersistentContext(effectiveProfile, {
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  });
+  try {
+    const page = browser.pages()[0] || (await browser.newPage());
+    await persistKitAccount(browser, page, name, effectiveProfile);
+    return { persisted: true, path: "relaunched" };
+  } finally {
+    try { await browser.close(); } catch { /* ignore */ }
+  }
+}
+
+module.exports = { startLogin, checkSession, cancelSession, expandHome, persistKitAccount, persistSession };
 
 // ─── Kit-accounts persistence ─────────────────────────────────────────
 

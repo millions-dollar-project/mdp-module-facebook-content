@@ -9,6 +9,7 @@ import {
   runCampaign,
   createAccount,
   pollAccountLoginStatus,
+  persistAccountLogin,
   deleteFBAccount,
   deleteFBGroup,
   deleteRepostCampaign,
@@ -314,6 +315,19 @@ export const RepostTab: React.FC<{ defaultMode?: Mode; hideSubTabs?: boolean }> 
       toast.info('Đang chờ bạn đăng nhập trong trình duyệt hiện ra…');
       const r = await pollLogin(out.sessionId);
       if (r.ok) {
+        // Defense in depth: the sidecar auto-persists inside _runLoginFlow
+        // when the URL leaves /login, but that write can race with the
+        // status flip (the plugin might see `completed` before the
+        // fs.writeFileSync round-trip). Force a re-persist via the
+        // explicit /login/persist route so the on-disk artifacts are
+        // guaranteed present before we reload the list. Best-effort —
+        // a failure here doesn't block the success toast because the
+        // auto-persist path may have already succeeded.
+        try {
+          await persistAccountLogin(out.sessionId, name);
+        } catch {
+          // swallow — auto-persist likely already ran
+        }
         reloadAccounts();
         toast.success(`"${name}" đã đăng nhập xong và sẵn sàng dùng`);
       } else {

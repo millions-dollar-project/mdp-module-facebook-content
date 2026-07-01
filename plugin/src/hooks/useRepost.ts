@@ -205,6 +205,29 @@ export async function pollAccountLoginStatus(sessionId: string): Promise<{
 }
 
 /**
+ * Force a sidecar persist for a completed login session. The sidecar
+ * also auto-persists inside its `_runLoginFlow`, but that auto-persist
+ * can race with the status flip ("completed") or fail silently. Calling
+ * this after the plugin sees `status=completed` makes the on-disk
+ * meta.json + appstate.json pair authoritative — the UI can then
+ * reloadAccounts and see the new row even if the auto-persist lagged.
+ *
+ * Mirrors `kit-accounts/login/persist` → sidecar `/account-login/persist`.
+ */
+export async function persistAccountLogin(
+  sessionId: string,
+  name: string,
+): Promise<{ persisted: boolean; path?: string }> {
+  return fbFetch<{ persisted: boolean; path?: string }>(
+    `kit-accounts/login/persist`,
+    {
+      method: 'POST',
+      body: { sessionId, name },
+    },
+  );
+}
+
+/**
  * Relaunch a fresh login session for an existing account (used after
  * `appstate.json` expiry). Hits the kit-accounts sidecar start endpoint
  * again — the kit handler will overwrite or create the sessionId.
