@@ -113,7 +113,7 @@ type generateAndScheduleReq struct {
 	// required would reject 0 with a generic "field required" error
 	// and we want a specific "out_of_range" code instead.
 	NumDrafts int       `json:"numDrafts"`
-	PersonaID string    `json:"personaId" binding:"required"`
+	ModelID   string    `json:"modelId" binding:"required"`
 	AccountID string    `json:"accountId" binding:"required"`
 	Slots     []slotDTO `json:"slots"     binding:"required"`
 }
@@ -174,10 +174,10 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 		})
 		return
 	}
-	if req.PersonaID == "" {
+	if req.ModelID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "persona_required",
-			"message": "personaId is required",
+			"code":    "model_required",
+			"message": "modelId is required",
 		})
 		return
 	}
@@ -254,7 +254,7 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 	// NumDrafts drafts (one per context feed, up to contextLimit).
 	// If the AI returns fewer (e.g. some feeds blocked), we surface
 	// per-slot failures for the gaps.
-	drafts, genFailures, err := h.gen.Generate(ctx, contextFeedIDs, req.PersonaID)
+	drafts, genFailures, err := h.gen.Generate(ctx, contextFeedIDs, req.ModelID)
 	if err != nil && len(drafts) == 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    "generate_failed",

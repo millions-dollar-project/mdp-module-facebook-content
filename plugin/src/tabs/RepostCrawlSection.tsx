@@ -163,7 +163,7 @@ export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
   const [accSubmitting, setAccSubmitting] = React.useState(false);
   // SchedulePostModal — opens either automatically when a crawl +
   // auto-ingest finishes, or manually when the user clicks the
-  // "Tạo bài từ crawl" button. The modal asks for persona +
+  // "Tạo bài từ crawl" button. The modal asks for an AI model +
   // numDrafts + custom time slots (no auto-spacing) and posts to
   // /brain/generate-and-schedule.
   const [scheduleModalOpen, setScheduleModalOpen] = React.useState(false);
@@ -1134,17 +1134,16 @@ export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
       {/*
         SchedulePostModal — opens automatically after a successful
         crawl + ingest, or manually when the user clicks the
-        "Tạo bài từ crawl" button. The modal asks for persona +
-        numDrafts + N custom time slots (no auto-spacing) and the
-        backend picks the top numDrafts newest feeds as style
-        context for the AI. accountId is the first kit-account's
-        SHA-1 v5 UUID (the only account the Worker publishes to
-        in v1).
+        "Tạo bài từ crawl" button. The modal asks for an AI model +
+        a numDrafts count (1..50, default 3) + N custom time slots
+        (no auto-spacing) and the backend picks the top numDrafts
+        newest feeds as style context for the AI. accountId is the
+        first kit-account's SHA-1 v5 UUID (the only account the
+        Worker publishes to in v1).
       */}
       <SchedulePostModal
         open={scheduleModalOpen}
         onClose={handleCloseScheduleModal}
-        numDrafts={3}
         accountId={fbAccounts?.[0]?.uuid ?? ''}
         onCreated={handleScheduleCreated}
       />

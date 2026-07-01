@@ -158,6 +158,7 @@ func main() {
 		Logger:          log,
 		CommentMonitor:  commentMonitor,
 		BrainBinaryPath: os.Getenv("MDP_BRAIN_BIN"),
+		BrainAIModels:   cfg.BrainAIModels,
 	})
 	srv := &http.Server{
 		Addr:              cfg.Port,

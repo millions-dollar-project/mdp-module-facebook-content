@@ -157,6 +157,16 @@ export interface BrainPersona {
   external_ref?: string;
 }
 
+/**
+ * AI model exposed by `GET /brain/ai-models`. The id is sent back as
+ * the `model` field on /brain/generate-and-schedule; the label is
+ * shown in the schedule modal's AI dropdown.
+ */
+export interface BrainAIModel {
+  id: string;
+  label: string;
+}
+
 /** Proposed learning signal returned by brain_get_learning_state. */
 export interface BrainLearningSignal {
   id: string;

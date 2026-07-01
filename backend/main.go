@@ -98,15 +98,16 @@ func main() {
 	// HTTP server
 	gin.SetMode(gin.ReleaseMode)
 	router := api.NewRouter(api.RouterDeps{
-		Pool:       pool,
-		Pages:      pagesRepo,
-		Queue:      queueRepo,
-		Sched:      schedRepo,
-		Posts:      postsRepo,
-		Config:     configRepo,
-		Graph:      graph,
-		SidecarURL: cfg.SidecarURL,
-		Logger:     log,
+		Pool:          pool,
+		Pages:         pagesRepo,
+		Queue:         queueRepo,
+		Sched:         schedRepo,
+		Posts:         postsRepo,
+		Config:        configRepo,
+		Graph:         graph,
+		SidecarURL:    cfg.SidecarURL,
+		Logger:        log,
+		BrainAIModels: cfg.BrainAIModels,
 	})
 	srv := &http.Server{
 		Addr:              cfg.Port,

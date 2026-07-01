@@ -19,6 +19,7 @@ import (
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/ai"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/api/handlers"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/api/middleware"
+	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/config"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/fb"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/mcp"
 	"github.com/millions-dollar-project/mdp-module-facebook/backend/internal/models"
@@ -51,6 +52,10 @@ type RouterDeps struct {
 	CommentMonitor  *service.CommentMonitor
 	BrainBinaryPath string
 	BrainScope      map[string]string // default scope for brain dashboard handlers
+	// BrainAIModels is the dropdown list shown in the "Tạo bài từ
+	// crawl" modal. Populated from config.BrainAIModels (env
+	// MDP_BRAIN_AI_MODELS with a DefaultAIModels fallback).
+	BrainAIModels []config.AIModel
 }
 
 // NewRouter returns a fully-wired *gin.Engine. Middleware order:
@@ -295,6 +300,12 @@ func NewRouter(d RouterDeps) *gin.Engine {
 			kitAccountExistsAdapter{loader: kitLoader},
 		)
 		v1.POST("/brain/generate-and-schedule", brainScheduleH.GenerateAndSchedule)
+
+		// AI model dropdown for the "Tạo bài từ crawl" modal. The
+		// list is static for the process lifetime; configured via
+		// MDP_BRAIN_AI_MODELS env (see config.loadBrainAIModels).
+		aiModelsH := handlers.NewBrainAIModelsHandler(d.BrainAIModels)
+		v1.GET("/brain/ai-models", aiModelsH.List)
 
 		// Publish (immediate, snake_case body)
 		v1.POST("/publish", pubH.Publish)

@@ -8,6 +8,7 @@
 
 import { fbFetch } from '../api';
 import type {
+  BrainAIModel,
   BrainFeedListResponse,
   BrainGraphStats,
   BrainLearningSignal,
@@ -116,6 +117,19 @@ export function fetchBrainProvenance(
 
 export function fetchBrainPersonas(signal?: AbortSignal, accountId?: string): Promise<{ personas: BrainPersona[] }> {
   return fbFetch<{ personas: BrainPersona[] }>(`brain/personas${accountIdQuery(accountId)}`, { signal });
+}
+
+/**
+ * List AI models exposed by the backend's `/brain/ai-models` route.
+ * Empty `data` array = no models configured (handler responds 503; the
+ * caller surfaces that as `error`, not as an empty list).
+ *
+ * `accountId` is currently unused by the backend (models are global,
+ * not per-account) but accepted for API parity with the other brain
+ * fetchers so future per-account overrides don't churn call sites.
+ */
+export function fetchBrainAIModels(signal?: AbortSignal, accountId?: string): Promise<{ data: BrainAIModel[] }> {
+  return fbFetch<{ data: BrainAIModel[] }>(`brain/ai-models${accountIdQuery(accountId)}`, { signal });
 }
 
 export function fetchBrainLearning(signal?: AbortSignal, accountId?: string): Promise<{ signals: BrainLearningSignal[] }> {

@@ -2,12 +2,34 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 )
+
+// AIModel is one entry in the brain/ai-models dropdown shown to
+// the user when they ask the AI to generate N drafts from crawled
+// context. Configured via MDP_BRAIN_AI_MODELS (a JSON array) so
+// ops can rotate the provider list without redeploying the
+// plugin. Defaults to a small fixed list if the env var is empty.
+type AIModel struct {
+	ID    string `json:"id"`    // e.g. "gpt-4o"
+	Label string `json:"label"` // e.g. "GPT-4o"
+}
+
+// DefaultAIModels is the fallback list exposed by GET /brain/ai-models
+// when MDP_BRAIN_AI_MODELS is unset. Covers the three big labs the
+// team is currently evaluating; ops can override at any time without
+// a code change.
+var DefaultAIModels = []AIModel{
+	{ID: "gpt-4o", Label: "GPT-4o"},
+	{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4"},
+	{ID: "gemini-2.5-pro", Label: "Gemini 2.5 Pro"},
+	{ID: "deepseek-v3", Label: "DeepSeek V3"},
+}
 
 // Config is the in-memory representation of all runtime knobs.
 type Config struct {
@@ -53,6 +75,13 @@ type Config struct {
 	KlingAPIBase     string
 	AIProviderText   string // "openai" | "echo"
 	AIProviderVisual string // "kling" | "echo"
+
+	// BrainAIModels is the dropdown list shown to the user in the
+	// "Tạo bài từ crawl" modal. Loaded from MDP_BRAIN_AI_MODELS (a
+	// JSON array of {"id":"...","label":"..."}). Empty / unset =
+	// DefaultAIModels. We keep this on the Config so the HTTP
+	// handler can read it without a separate DI pass.
+	BrainAIModels []AIModel
 
 	// --- Google Sheets auto-export (Phase 3+) ---
 	GoogleSheetsSpreadsheetID      string
@@ -100,6 +129,10 @@ func Load() (*Config, error) {
 		AIProviderText:   getenv("AI_PROVIDER_TEXT", "echo"),
 		AIProviderVisual: getenv("AI_PROVIDER_VISUAL", "echo"),
 
+		// Brain AI model list (override-able via env). Falls back to
+		// DefaultAIModels if the env var is empty or unparseable.
+		BrainAIModels: loadBrainAIModels(os.Getenv("MDP_BRAIN_AI_MODELS")),
+
 		// Google Sheets
 		GoogleSheetsSpreadsheetID:     os.Getenv("GOOGLE_SHEETS_SPREADSHEET_ID"),
 		GoogleSheetsServiceAccountJSON: os.Getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON"),
@@ -131,6 +164,43 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// loadBrainAIModels parses the JSON env var. Empty / invalid JSON
+// silently falls back to DefaultAIModels — we never want a config
+// typo to brick the /brain/ai-models endpoint. Returns a copy of
+// the default slice (not a shared reference) so callers can mutate
+// without surprising the next Load().
+func loadBrainAIModels(raw string) []AIModel {
+	if raw == "" {
+		out := make([]AIModel, len(DefaultAIModels))
+		copy(out, DefaultAIModels)
+		return out
+	}
+	var parsed []AIModel
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		out := make([]AIModel, len(DefaultAIModels))
+		copy(out, DefaultAIModels)
+		return out
+	}
+	// Drop entries with no id — a dropdown with empty values would
+	// 400 every subsequent /brain/generate-and-schedule call.
+	clean := make([]AIModel, 0, len(parsed))
+	for _, m := range parsed {
+		if m.ID == "" {
+			continue
+		}
+		if m.Label == "" {
+			m.Label = m.ID
+		}
+		clean = append(clean, m)
+	}
+	if len(clean) == 0 {
+		out := make([]AIModel, len(DefaultAIModels))
+		copy(out, DefaultAIModels)
+		return out
+	}
+	return clean
 }
 
 func getDuration(key string, def time.Duration) time.Duration {

@@ -187,7 +187,7 @@ func TestBrainScheduleHandler_NumDraftsSlotMismatch(t *testing.T) {
 
 	w := postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 3,
-		"personaId": "p1",
+		"modelId":   "m1",
 		"accountId": uuid.NewString(),
 		"slots":     []map[string]any{{"scheduledAt": time.Now().Add(2 * time.Hour)}},
 	})
@@ -210,7 +210,7 @@ func TestBrainScheduleHandler_NumDraftsOutOfRange(t *testing.T) {
 	// 0
 	w := postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 0,
-		"personaId": "p",
+		"modelId":   "m",
 		"accountId": uuid.NewString(),
 		"slots":     []map[string]any{},
 	})
@@ -220,7 +220,7 @@ func TestBrainScheduleHandler_NumDraftsOutOfRange(t *testing.T) {
 	// 51
 	w = postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 51,
-		"personaId": "p",
+		"modelId":   "m",
 		"accountId": uuid.NewString(),
 		"slots":     make([]map[string]any, 51),
 	})
@@ -248,7 +248,7 @@ func TestBrainScheduleHandler_NoCrawledFeeds(t *testing.T) {
 	}
 	w := postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 3,
-		"personaId": "p",
+		"modelId":   "m",
 		"accountId": uuid.NewString(),
 		"slots":     slots,
 	})
@@ -284,7 +284,7 @@ func TestBrainScheduleHandler_HappyPath(t *testing.T) {
 	accountID := uuid.NewString()
 	w := postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 3,
-		"personaId": "persona-x",
+		"modelId":   "model-x",
 		"accountId": accountID,
 		"slots":     slots,
 	})
@@ -328,7 +328,7 @@ func TestBrainScheduleHandler_HappyPath(t *testing.T) {
 	// the lister (NOT a 1:1 feed list from the user).
 	gen.mu.Lock()
 	defer gen.mu.Unlock()
-	assert.Equal(t, "persona-x", gen.gotPersona)
+	assert.Equal(t, "model-x", gen.gotPersona)
 	assert.Equal(t, []string{"ctx-1", "ctx-2", "ctx-3"}, gen.gotFeedIDs)
 }
 
@@ -357,7 +357,7 @@ func TestBrainScheduleHandler_ContextCapsAtNumDrafts(t *testing.T) {
 	}
 	w := postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 3,
-		"personaId": "p",
+		"modelId":   "m",
 		"accountId": uuid.NewString(),
 		"slots":     slots,
 	})
@@ -399,7 +399,7 @@ func TestBrainScheduleHandler_PartialFailure(t *testing.T) {
 	}
 	w := postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 3,
-		"personaId": "p",
+		"modelId":   "m",
 		"accountId": uuid.NewString(),
 		"slots":     slots,
 	})
@@ -463,7 +463,7 @@ func TestBrainScheduleHandler_SlotInPast(t *testing.T) {
 	}
 	w := postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 3,
-		"personaId": "p",
+		"modelId":   "m",
 		"accountId": uuid.NewString(),
 		"slots":     slots,
 	})
@@ -485,7 +485,7 @@ func TestBrainScheduleHandler_KitAccountNotFound(t *testing.T) {
 
 	w := postJSON(r, "/api/v1/facebook/brain/generate-and-schedule", map[string]any{
 		"numDrafts": 1,
-		"personaId": "p",
+		"modelId":   "m",
 		"accountId": uuid.NewString(),
 		"slots":     []map[string]any{{"scheduledAt": time.Now().Add(1 * time.Hour)}},
 	})

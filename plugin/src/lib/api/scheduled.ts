@@ -3,7 +3,7 @@
  *
  * Three endpoints do the heavy lifting:
  *
- *  - POST /brain/generate-and-schedule: takes numDrafts + a persona +
+ *  - POST /brain/generate-and-schedule: takes numDrafts + an AI model id +
  *    N custom time slots; the backend pulls the top-N newest crawled
  *    feeds from brain_feeds as style context, runs mdp-brain.Generate
  *    on them, picks the first numDrafts drafts, and inserts N
@@ -55,7 +55,8 @@ export interface ScheduleRow {
   errorMessage?: string;
   /** Enrichment from the LEFT JOIN on brain_drafts. */
   brainDraftId?: string;
-  personaId?: string;
+  /** AI model id used to produce the draft (e.g. "gpt-4o"). */
+  modelId?: string;
   feedContent?: string;
   thumbnail?: string;
   feedMediaUrls?: string[];
@@ -69,7 +70,8 @@ export interface GenerateAndScheduleRequest {
    * Range: 1..50.
    */
   numDrafts: number;
-  personaId: string;
+  /** AI model id (one of GET /brain/ai-models). Backend uses this to choose the provider. */
+  modelId: string;
   /** SHA-1 v5 UUID of the kit account that owns the personal /me posts. */
   accountId: string;
   /**

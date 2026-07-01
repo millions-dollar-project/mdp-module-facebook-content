@@ -11,15 +11,15 @@
  *   - Chỉnh giờ    — inline datetime-local that submits on Enter or blur
  *   - Huỷ          — only on SCHEDULED
  *
- * The persona label per card is resolved client-side via useBrainPersonas
- * (we don't join in the backend for the persona name to keep the response
+ * The AI model label per card is resolved client-side via useBrainAIModels
+ * (we don't join in the backend for the model name to keep the response
  * shape stable across kit accounts).
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { useScheduledPosts } from '../hooks/useScheduledPosts';
-import { useBrainPersonas } from '../hooks/useBrainPersonas';
+import { useBrainAIModels } from '../hooks/useBrainAIModels';
 import {
   scheduleApi,
   type ScheduleRow,
@@ -58,12 +58,12 @@ function formatLocalTime(iso: string): string {
 
 export const KanbanTab: React.FC<KanbanTabProps> = ({ accountId }) => {
   const { rows, loading, error, reload } = useScheduledPosts({ accountId });
-  const { personas } = useBrainPersonas({ accountId });
-  const personaNameById = useMemo(() => {
+  const { models } = useBrainAIModels({ accountId });
+  const modelNameById = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const p of personas) m[p.id] = p.id;
+    for (const a of models) m[a.id] = a.label;
     return m;
-  }, [personas]);
+  }, [models]);
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -161,9 +161,9 @@ export const KanbanTab: React.FC<KanbanTabProps> = ({ accountId }) => {
                           <span className="kanban-tab__time">
                             {formatLocalTime(row.scheduledAt)}
                           </span>
-                          {row.personaId && (
+                          {row.modelId && (
                             <span className="kanban-tab__persona">
-                              {personaNameById[row.personaId] ?? row.personaId}
+                              {modelNameById[row.modelId] ?? row.modelId}
                             </span>
                           )}
                           {row.postType === 'personal' && (
