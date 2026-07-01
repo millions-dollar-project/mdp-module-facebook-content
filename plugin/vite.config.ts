@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({
+export default defineConfig(({ command, mode }) => ({
   server: {
     port: 5176,
   },
@@ -24,9 +24,11 @@ export default defineConfig({
         banner: 'var process=process||{env:{NODE_ENV:"production"}};',
       },
     },
-    watch: {
-      buildDelay: 300,
-      exclude: ['node_modules/**'],
-    },
+    // Watch only when explicitly running the dev script (vite build --watch).
+    // A static watch object here forces `vite build` to never exit, which
+    // hangs CI/manual builds and ships a stale bundle.
+    watch: command === 'build' && mode === 'development'
+      ? { buildDelay: 300, exclude: ['node_modules/**'] }
+      : null,
   },
-});
+}));
