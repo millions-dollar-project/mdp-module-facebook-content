@@ -21,6 +21,7 @@ export {
   runCampaign,
   createAccount,
   pollAccountLoginStatus,
+  persistAccountLogin,
   relaunchAccountLogin,
   deleteFBAccount,
   deleteFBGroup,
