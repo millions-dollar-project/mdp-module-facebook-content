@@ -174,11 +174,24 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		}
 		brainClient.SetEnv(map[string]string{"DATABASE_URL": brainDSN})
 	}
-	var brainSvc *service.BrainFeedService
+	// Build the handler dependencies as interface-typed locals. When the
+	// brain client is absent we leave them as nil *interfaces* (not a
+	// typed-nil *BrainFeedService wrapped in an interface, which would be
+	// non-nil and slip past the handler's `== nil` guard, panicking on
+	// the nil receiver's store access).
+	var (
+		brainLister    handlers.BrainFeedLister
+		brainIngest    handlers.BrainFeedIngestCaller
+		brainGenerate  handlers.BrainFeedGenerateCaller
+		brainSchedGen  handlers.BrainScheduleGenerator
+		brainSchedList handlers.BrainFeedContextLister
+	)
 	if brainClient != nil {
-		brainSvc = service.NewBrainFeedService(brainFeedStore, brainDraftStore, brainClient, kitLoader, 5)
+		brainSvc := service.NewBrainFeedService(brainFeedStore, brainDraftStore, brainClient, kitLoader, 5)
+		brainLister, brainIngest, brainGenerate = brainSvc, brainSvc, brainSvc
+		brainSchedGen, brainSchedList = brainSvc, brainSvc
 	}
-	brainH := handlers.NewBrainFeedHandler(brainSvc, brainSvc, brainSvc)
+	brainH := handlers.NewBrainFeedHandler(brainLister, brainIngest, brainGenerate)
 
 	// Brain dashboard (overview, peek, personas, learning, feedback, graph).
 	// Reuse the same brainClient and repos the feed handler owns. The
@@ -293,8 +306,8 @@ func NewRouter(d RouterDeps) *gin.Engine {
 		// different interface types so the handler can stub each
 		// side independently in tests.
 		brainScheduleH := handlers.NewBrainScheduleHandler(
-			brainSvc,
-			brainSvc,
+			brainSchedGen,
+			brainSchedList,
 			schedSvc,
 			brainDraftRepo,
 			kitAccountExistsAdapter{loader: kitLoader},
