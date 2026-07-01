@@ -8,80 +8,15 @@ import './styles.css';
 import { App } from './App';
 
 type RootEl = HTMLElement & { _root?: ReturnType<typeof createRoot> };
-type ShellWindow = Window & {
-  mdp?: {
-    register?: (p: { id: string; mount: (el: HTMLElement) => void; unmount: (el?: HTMLElement) => void }) => void;
-  };
-};
 
-function registerPlugin(): boolean {
-  try {
-    const shell = typeof window !== 'undefined' ? (window as ShellWindow).mdp : undefined;
-    console.log('[facebook-content] window.mdp =', shell, 'register =', typeof shell?.register);
-    if (shell?.register) {
-      shell.register({
-        id: 'facebook-content',
-        mount(container: HTMLElement) {
-          console.log('[facebook-content] mount() called');
-          // Install error interceptor BEFORE render so first-render
-          // exceptions land in the document title instead of producing
-          // a silent blank canvas.
-          const origError = console.error;
-          if (!(console as any).__fbContentErrorWrapped) {
-            console.error = (...args: unknown[]) => {
-              try {
-                const txt = args
-                  .map((a) => (typeof a === 'string' ? a : a instanceof Error ? a.message : JSON.stringify(a)))
-                  .join(' ');
-                document.title = '[FB Content ERROR] ' + txt.slice(0, 120);
-              } catch {
-                /* ignore */
-              }
-              origError.apply(console, args);
-            };
-            (console as any).__fbContentErrorWrapped = true;
-          }
-          try {
-            const root = createRoot(container);
-            root.render(React.createElement(App));
-            (container as RootEl)._root = root;
-            console.log('[facebook-content] mounted');
-          } catch (e) {
-            console.error('[facebook-content] render failed:', e);
-          }
-        },
-        unmount(container?: HTMLElement) {
-          (container as RootEl | undefined)?._root?.unmount();
-        },
-      });
-      console.log('[facebook-content] registered successfully');
-      return true;
-    }
-  } catch (err) {
-    console.error('[facebook] register failed:', err);
-  }
-  return false;
+export const id = 'facebook-content';
+
+export function mount(container: HTMLElement): void {
+  const root = createRoot(container);
+  root.render(React.createElement(App));
+  (container as RootEl)._root = root;
 }
 
-if (!registerPlugin()) {
-  console.log('[facebook-content] mdp not ready, starting poll...');
-  let attempts = 0;
-  const maxAttempts = 60;
-  const interval = window.setInterval(() => {
-    attempts += 1;
-    if (registerPlugin()) {
-      window.clearInterval(interval);
-      return;
-    }
-    if (attempts >= maxAttempts) {
-      window.clearInterval(interval);
-      console.log('[facebook-content] max attempts reached, falling back to standalone mount');
-      const mount = document.getElementById('root');
-      if (mount) {
-        createRoot(mount).render(React.createElement(App));
-      } else {
-        console.error('[facebook-content] neither window.mdp.register nor #root found');
-      }
-    }
-  }, 50);
+export function unmount(container?: HTMLElement): void {
+  (container as RootEl | undefined)?._root?.unmount();
 }
