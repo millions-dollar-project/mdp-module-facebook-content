@@ -48,8 +48,15 @@ export function useAccountLogin(): UseAccountLoginState {
         // under ~/mdp-data/accounts/<name>/ once the URL leaves /login.
         // Without it the sidecar's persistKitAccount() is skipped and
         // the row never appears in GET /kit-accounts.
+        //
+        // We hit `kit-accounts/login/start` (the kit-accounts proxy
+        // mounted by mdp-kit/go/kit-accounts), not the legacy
+        // /account-login/start which the backend now returns 410 Gone
+        // for (see backend router.go: `/fb-accounts` retired block).
+        // Without the kit- prefix the request silently 404s and
+        // Chromium never opens.
         const res = await fbFetch<{ sessionId: string; status: string }>(
-          'account-login/start',
+          'kit-accounts/login/start',
           { method: 'POST', body: { profilePath, email, name } },
         );
         const next: AccountLoginSession = {
@@ -62,7 +69,7 @@ export function useAccountLogin(): UseAccountLoginState {
         pollRef.current = window.setInterval(async () => {
           try {
             const status = await fbFetch<AccountLoginSession>(
-              `account-login/status?sessionId=${encodeURIComponent(res.sessionId)}`,
+              `kit-accounts/login/status?sessionId=${encodeURIComponent(res.sessionId)}`,
             );
             setSession(status);
             if (status.status !== 'pending' && status.status !== 'running') {
@@ -100,7 +107,7 @@ export function useAccountLogin(): UseAccountLoginState {
     if (!session) return;
     stopPolling();
     try {
-      await fbFetch('account-login/cancel', {
+      await fbFetch('kit-accounts/login/cancel', {
         method: 'POST',
         body: { sessionId: session.sessionId },
       });
