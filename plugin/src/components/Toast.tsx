@@ -23,11 +23,18 @@ export interface ToastItem {
 }
 
 interface ToastContextValue {
-  push: (msg: string, tone?: ToastTone, duration?: number) => void;
-  success: (msg: string, duration?: number) => void;
-  error: (msg: string, duration?: number) => void;
-  warning: (msg: string, duration?: number) => void;
-  info: (msg: string, duration?: number) => void;
+  /**
+   * Push a toast and return its id so callers can dismiss it
+   * manually (e.g. when a loading toast should be replaced by a
+   * success/failure toast on completion). Returns 0 from the
+   * fallback context (used outside <ToastProvider>) so callers can
+   * still call dismiss(0) without crashing.
+   */
+  push: (msg: string, tone?: ToastTone, duration?: number) => number;
+  success: (msg: string, duration?: number) => number;
+  error: (msg: string, duration?: number) => number;
+  warning: (msg: string, duration?: number) => number;
+  info: (msg: string, duration?: number) => number;
   dismiss: (id: number) => void;
 }
 
@@ -62,10 +69,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const push = React.useCallback(
-    (message: string, tone: ToastTone = 'info', duration = 3500) => {
+    (message: string, tone: ToastTone = 'info', duration = 3500): number => {
       const id = nextId++;
       setItems((prev) => [...prev, { id, message, tone, duration }]);
       scheduleRemove(id, duration);
+      return id;
     },
     [scheduleRemove],
   );
@@ -108,11 +116,11 @@ export const useToast = (): ToastContextValue => {
       console.warn('[Toast] useToast called without <ToastProvider>');
     }
     return {
-      push: (m) => console.log('[toast]', m),
-      success: (m) => console.log('[toast success]', m),
-      error: (m) => console.error('[toast error]', m),
-      warning: (m) => console.warn('[toast warning]', m),
-      info: (m) => console.log('[toast info]', m),
+      push: (m) => { console.log('[toast]', m); return 0; },
+      success: (m) => { console.log('[toast success]', m); return 0; },
+      error: (m) => { console.error('[toast error]', m); return 0; },
+      warning: (m) => { console.warn('[toast warning]', m); return 0; },
+      info: (m) => { console.log('[toast info]', m); return 0; },
       dismiss: () => {},
     };
   }

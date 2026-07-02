@@ -18,6 +18,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
+import { useToast } from '../components/Toast';
 import { useScheduledPosts } from '../hooks/useScheduledPosts';
 import { useBrainAIModels } from '../hooks/useBrainAIModels';
 import {
@@ -25,6 +26,18 @@ import {
   type ScheduleRow,
   type ScheduleStatus,
 } from '../lib/api/scheduled';
+
+/**
+ * A Facebook permalink is acceptable as a "view post" link only if it
+ * points at an actual story — not the bare /me timeline page that
+ * sidecar sometimes returns as a fallback when the fingerprint scan
+ * misses (see publisher-profile.js findPersonalPostUrl).
+ */
+function isAcceptablePostUrl(url: string | undefined | null): url is string {
+  if (!url) return false;
+  if (!url.startsWith('http')) return false;
+  return /\/posts\/|\/permalink|\/story\.php|\/photo\.php|\/videos\//.test(url);
+}
 
 export interface KanbanTabProps {
   /** SHA-1 v5 UUID of the kit account. Empty = all accounts. */
@@ -65,19 +78,30 @@ export const KanbanTab: React.FC<KanbanTabProps> = ({ accountId }) => {
     return m;
   }, [models]);
 
+  const toast = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const handlePublishNow = useCallback(
     async (id: string) => {
       setBusyId(id);
+      // Backend now claims the row as PUBLISHING before returning, so
+      // the Kanban reload should land the card in the "Đang đăng"
+      // column. Tell the user what we're waiting for; the persistent
+      // feedback is the column move itself.
+      const loadingMsg = 'Đang đăng bài lên trang cá nhân…';
+      const loadingId = toast.push(loadingMsg, 'info', 15000);
       try {
         await scheduleApi.publishNow(id);
         await reload();
+        toast.success('Đã đăng bài');
+      } catch (e) {
+        toast.error(`Đăng ngay lỗi: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
+        toast.dismiss(loadingId);
         setBusyId(null);
       }
     },
-    [reload]
+    [reload, toast]
   );
 
   const handleCancel = useCallback(
@@ -86,11 +110,14 @@ export const KanbanTab: React.FC<KanbanTabProps> = ({ accountId }) => {
       try {
         await scheduleApi.cancel(id);
         await reload();
+        toast.success('Đã huỷ lịch bài viết');
+      } catch (e) {
+        toast.error(`Huỷ lỗi: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
         setBusyId(null);
       }
     },
-    [reload]
+    [reload, toast]
   );
 
   const handleReschedule = useCallback(
@@ -174,15 +201,24 @@ export const KanbanTab: React.FC<KanbanTabProps> = ({ accountId }) => {
                               {row.errorMessage}
                             </span>
                           )}
-                          {row.status === 'PUBLISHED' && row.facebookPostId && (
-                            <a
-                              className="kanban-tab__post-link"
-                              href={row.facebookPostId}
-                              target="_blank"
-                              rel="noreferrer"
+                          {row.status === 'PUBLISHED' &&
+                            isAcceptablePostUrl(row.facebookPostId) && (
+                              <a
+                                className="kanban-tab__post-link"
+                                href={row.facebookPostId}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                xem bài
+                              </a>
+                            )}
+                          {row.status === 'PUBLISHED' && !isAcceptablePostUrl(row.facebookPostId) && (
+                            <span
+                              className="kanban-tab__post-link kanban-tab__post-link--muted"
+                              title="Bài đã đăng nhưng URL chưa được sidecar xác nhận — mở timeline cá nhân để xem."
                             >
-                              xem bài
-                            </a>
+                              đã đăng ✓
+                            </span>
                           )}
                         </div>
                         <div className="kanban-tab__actions">

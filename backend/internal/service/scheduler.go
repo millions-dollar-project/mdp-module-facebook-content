@@ -134,6 +134,11 @@ func (s *Scheduler) Reschedule(ctx context.Context, id string, postType models.P
 // post_type:
 //   - "personal" → sidecar.PostToProfile (Playwright /me composer)
 //   - anything else → Publisher.PublishContent (Graph API to a Page)
+//
+// Atomic claim: transitions SCHEDULED → PUBLISHING first so the Kanban
+// "Đang đăng" column pops immediately while the (potentially slow)
+// Playwright / Graph call runs. On any failure we roll back to FAILED
+// with the underlying error message.
 func (s *Scheduler) PublishNow(ctx context.Context, id string) (models.ScheduledPost, error) {
 	row, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -142,16 +147,27 @@ func (s *Scheduler) PublishNow(ctx context.Context, id string) (models.Scheduled
 	if row.Status != models.ScheduleStatusScheduled {
 		return models.ScheduledPost{}, fmt.Errorf("cannot publish: status is %s", row.Status)
 	}
+	if _, err := s.repo.MarkPublishing(ctx, id); err != nil {
+		return models.ScheduledPost{}, fmt.Errorf("claim publishing: %w", err)
+	}
 	if row.PostType == models.PostTypePersonal {
 		return s.publishPersonal(ctx, row)
 	}
 	page, err := s.pages.Get(ctx, row.PageID)
 	if err != nil {
-		return models.ScheduledPost{}, fmt.Errorf("lookup page: %w", err)
+		failed, mErr := s.repo.MarkFailed(ctx, id, "lookup page: "+err.Error())
+		if mErr != nil {
+			return models.ScheduledPost{}, mErr
+		}
+		return failed, err
 	}
 	fbPostID, err := s.pub.PublishContent(ctx, page, row.Content)
 	if err != nil {
-		return models.ScheduledPost{}, err
+		failed, mErr := s.repo.MarkFailed(ctx, id, err.Error())
+		if mErr != nil {
+			return models.ScheduledPost{}, mErr
+		}
+		return failed, err
 	}
 	return s.repo.MarkPublished(ctx, id, fbPostID)
 }
@@ -162,23 +178,28 @@ func (s *Scheduler) PublishNow(ctx context.Context, id string) (models.Scheduled
 // scheduled_posts.facebook_post_id (the column is reused: it
 // represents "external post id" for fanpage rows and "external post
 // URL" for personal rows).
+//
+// Pre-condition: caller has already flipped status to PUBLISHING. On
+// any error here we MarkFailed so the Kanban's "Hoàn tất / Lỗi"
+// column picks it up and the user sees the underlying sidecar reason
+// instead of a permanently-stuck PUBLISHING card.
 func (s *Scheduler) publishPersonal(ctx context.Context, row models.ScheduledPost) (models.ScheduledPost, error) {
 	if s.kit == nil || s.sidecar == nil {
-		return models.ScheduledPost{}, errors.New("kit loader + sidecar required for personal posts")
+		return s.failPersonal(ctx, row, "kit loader + sidecar required for personal posts")
 	}
 	if row.KitAccountID == nil || *row.KitAccountID == "" {
-		return models.ScheduledPost{}, errors.New("personal row missing kit_account_id")
+		return s.failPersonal(ctx, row, "personal row missing kit_account_id")
 	}
 	uid, err := uuid.Parse(*row.KitAccountID)
 	if err != nil {
-		return models.ScheduledPost{}, fmt.Errorf("invalid kit account uuid: %w", err)
+		return s.failPersonal(ctx, row, "invalid kit account uuid: "+err.Error())
 	}
 	snap, err := s.kit.LookupByUUID(ctx, uid)
 	if err != nil {
-		return models.ScheduledPost{}, fmt.Errorf("kit account lookup: %w", err)
+		return s.failPersonal(ctx, row, "kit account lookup: "+err.Error())
 	}
 	if snap.ProfilePath == "" {
-		return models.ScheduledPost{}, errors.New("kit account has no ProfilePath; re-login required")
+		return s.failPersonal(ctx, row, "kit account has no ProfilePath; re-login required")
 	}
 	var media []string
 	if len(row.MediaURLs) > 0 {
@@ -186,10 +207,10 @@ func (s *Scheduler) publishPersonal(ctx context.Context, row models.ScheduledPos
 	}
 	res, err := s.sidecar.PostToProfile(ctx, snap.ProfilePath, row.Content, media)
 	if err != nil {
-		return models.ScheduledPost{}, err
+		return s.failPersonal(ctx, row, err.Error())
 	}
 	if !res.Success {
-		return models.ScheduledPost{}, errors.New(res.Error)
+		return s.failPersonal(ctx, row, res.Error)
 	}
 	return s.repo.MarkPublished(ctx, row.ID, res.PostURL)
 }
@@ -197,4 +218,17 @@ func (s *Scheduler) publishPersonal(ctx context.Context, row models.ScheduledPos
 // Cancel is the "Hủy" button.
 func (s *Scheduler) Cancel(ctx context.Context, id string) (models.ScheduledPost, error) {
 	return s.repo.Cancel(ctx, id)
+}
+
+// failPersonal rolls a PUBLISHING personal row back to FAILED and
+// returns the row plus the original error. If the rollback itself
+// fails (e.g. row vanished mid-call) we still surface the original
+// error so the caller can show it to the user.
+func (s *Scheduler) failPersonal(ctx context.Context, row models.ScheduledPost, msg string) (models.ScheduledPost, error) {
+	failed, mErr := s.repo.MarkFailed(ctx, row.ID, msg)
+	if mErr != nil {
+		s.log.Warn("mark failed after personal publish error failed", "id", row.ID, "err", mErr)
+		return row, errors.New(msg)
+	}
+	return failed, errors.New(msg)
 }

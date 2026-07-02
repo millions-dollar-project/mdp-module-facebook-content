@@ -112,10 +112,17 @@ type generateAndScheduleReq struct {
 	// We deliberately do NOT use the `required` binding tag — gin's
 	// required would reject 0 with a generic "field required" error
 	// and we want a specific "out_of_range" code instead.
-	NumDrafts int       `json:"numDrafts"`
-	ModelID   string    `json:"modelId" binding:"required"`
-	AccountID string    `json:"accountId" binding:"required"`
-	Slots     []slotDTO `json:"slots"     binding:"required"`
+	NumDrafts int `json:"numDrafts"`
+	// PublishImmediately, when true, overrides the user-supplied
+	// `slots` and schedules every generated draft with scheduledAt =
+	// now(). The worker picks rows whose scheduled_at <= now() on its
+	// next tick (≤60s) and posts via the personal-sidecar Playwright
+	// path — no extra endpoint required. UI: the "Đăng ngay khi AI
+	// xong" checkbox on SchedulePostModal.
+	PublishImmediately bool       `json:"publishImmediately"`
+	ModelID            string     `json:"modelId" binding:"required"`
+	AccountID          string     `json:"accountId" binding:"required"`
+	Slots              []slotDTO  `json:"slots"     binding:"required"`
 }
 
 type slotDTO struct {
@@ -173,6 +180,17 @@ func (h *BrainScheduleHandler) GenerateAndSchedule(c *gin.Context) {
 			"message": "slots length must equal numDrafts (one custom time per draft)",
 		})
 		return
+	}
+	// When publishImmediately is set we still require the slots array
+	// for shape parity with the scheduled path (handler iterates
+	// `range req.Slots` below) but we ignore each slot's scheduledAt
+	// and stamp now() instead. The worker picks up rows on its next
+	// tick (≤60s) and the sidecar /me path takes over.
+	if req.PublishImmediately {
+		now := time.Now()
+		for i := range req.Slots {
+			req.Slots[i].ScheduledAt = now
+		}
 	}
 	if req.ModelID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{

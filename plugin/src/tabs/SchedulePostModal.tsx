@@ -95,6 +95,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
   const [modelId, setModelId] = useState<string>('');
   const [numDrafts, setNumDrafts] = useState<number>(DEFAULT_DRAFTS);
   const [slots, setSlots] = useState<Slot[]>([]);
+  const [publishImmediately, setPublishImmediately] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [failures, setFailures] = useState<GenerateAndScheduleResponse['failures']>([]);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +108,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
     if (!open) return;
     setNumDrafts(DEFAULT_DRAFTS);
     setSlots(buildSlots(DEFAULT_DRAFTS));
+    setPublishImmediately(false);
     setFailures([]);
     setError(null);
   }, [open]);
@@ -153,24 +155,35 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
     }
     // Validate every slot has a parseable future time. The backend
     // rejects past times with 400, but we catch obvious blanks here
-    // so the user doesn't have to round-trip.
+    // so the user doesn't have to round-trip. Skipped entirely when
+    // publishImmediately is set — the backend stamps now() and the
+    // slot times are ignored.
     const parsedSlots: { scheduledAt: string }[] = [];
-    for (let i = 0; i < slots.length; i++) {
-      const s = slots[i];
-      if (!s.localDateTime) {
-        setError(`Ô giờ #${i + 1} đang trống`);
-        return;
+    if (!publishImmediately) {
+      for (let i = 0; i < slots.length; i++) {
+        const s = slots[i];
+        if (!s.localDateTime) {
+          setError(`Ô giờ #${i + 1} đang trống`);
+          return;
+        }
+        const d = new Date(s.localDateTime);
+        if (Number.isNaN(d.getTime())) {
+          setError(`Ô giờ #${i + 1} không hợp lệ`);
+          return;
+        }
+        if (d.getTime() <= Date.now()) {
+          setError(`Ô giờ #${i + 1} đã qua`);
+          return;
+        }
+        parsedSlots.push({ scheduledAt: d.toISOString() });
       }
-      const d = new Date(s.localDateTime);
-      if (Number.isNaN(d.getTime())) {
-        setError(`Ô giờ #${i + 1} không hợp lệ`);
-        return;
+    } else {
+      // Slot times are unused server-side but we still need a
+      // well-formed array of length numDrafts. Backend overrides
+      // every entry with time.Now().
+      for (let i = 0; i < slots.length; i++) {
+        parsedSlots.push({ scheduledAt: new Date().toISOString() });
       }
-      if (d.getTime() <= Date.now()) {
-        setError(`Ô giờ #${i + 1} đã qua`);
-        return;
-      }
-      parsedSlots.push({ scheduledAt: d.toISOString() });
     }
     setSubmitting(true);
     setError(null);
@@ -181,6 +194,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
         modelId,
         accountId,
         slots: parsedSlots,
+        publishImmediately,
       });
       if (res.failures?.length) {
         setFailures(res.failures);
@@ -195,7 +209,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
     } finally {
       setSubmitting(false);
     }
-  }, [slots, modelId, accountId, onCreated, onClose]);
+  }, [slots, modelId, accountId, onCreated, onClose, publishImmediately]);
 
   return (
     <Modal
@@ -287,12 +301,27 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
                   className="fb-input"
                   value={s.localDateTime}
                   onChange={(e) => updateSlot(i, e.target.value)}
-                  disabled={submitting}
+                  disabled={submitting || publishImmediately}
                   placeholder="10:01 14/07/2026"
                 />
               </li>
             ))}
           </ul>
+          <label className="schedule-modal__autopost">
+            <input
+              type="checkbox"
+              checked={publishImmediately}
+              onChange={(e) => setPublishImmediately(e.target.checked)}
+              disabled={submitting}
+              data-testid="publish-immediately-checkbox"
+            />
+            <span>
+              Đăng ngay khi AI xong
+              <small>
+                Worker sẽ pick bài trong vòng 60s và đăng lên trang cá nhân qua Playwright.
+              </small>
+            </span>
+          </label>
         </div>
 
         {failures.length > 0 && (

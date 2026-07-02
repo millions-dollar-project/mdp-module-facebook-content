@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { StudioFrame } from './StudioFrame';
+import { AccountPickerView } from './AccountPickerView';
 import { FormField, PillGroup, PlatformIcon } from '@mdp-private/kit-ui';
-import type { PillOption, KanbanCardData } from '@mdp-private/kit-ui';
+import type { AccountCardData, PillOption, KanbanCardData } from '@mdp-private/kit-ui';
 import { useToast } from '../components';
 import { useFBAccounts } from '../hooks';
+import { AccountLoginDialog } from '../tabs/AccountLoginDialog';
 import { RepostCrawlSection } from '../tabs/RepostCrawlSection';
 import { KanbanTab } from '../tabs/KanbanTab';
 
@@ -179,6 +181,15 @@ function FacebookBrain({
 export function FacebookView(): React.ReactElement {
   const [activeTab, setActiveTab] = useState('brain');
   const [cards, setCards] = useState<KanbanCardData[]>(SEED_CARDS);
+  // The picker gate. Null = no account picked yet → render the
+  // picker view. Once picked, the user enters StudioFrame for the
+  // rest of the session. Reloading the tab resets the gate (per
+  // product spec: "Luôn hiện").
+  const [picked, setPicked] = useState<AccountCardData | null>(null);
+  // Login dialog state — opened when the user clicks the "+ account"
+  // tile on the picker. We track an intent object so the dialog
+  // knows which profilePath/email to suggest.
+  const [loginIntent, setLoginIntent] = useState<{ name: string } | null>(null);
   const toast = useToast();
 
   const [prompt, setPrompt] = useState('');
@@ -246,7 +257,7 @@ export function FacebookView(): React.ReactElement {
   // RepostCrawlSection needs real account/group lists to drive its
   // crawl form. The schedule modal is self-contained now (it
   // dispatches `mdp:open-kanban` so we switch the tab from here).
-  const { data: accounts } = useFBAccounts();
+  const { data: accounts, reload: reloadAccounts } = useFBAccounts();
 
   // Bridge for legacy mounts of <RepostCrawlSection /> (e.g. inside
   // RepostTab) where the parent can't easily pass onOpenBrainFeed down.
@@ -269,38 +280,88 @@ export function FacebookView(): React.ReactElement {
     return () => window.removeEventListener('mdp:open-kanban', handler);
   }, []);
 
-  return (
-    <StudioFrame
-      activeTab={activeTab}
-      onTabChange={setActiveTab}
-      brainContent={
-        <FacebookBrain
-          prompt={prompt}
-          setPrompt={setPrompt}
-          persona={persona}
-          setPersona={setPersona}
-          media={media}
-          setMedia={setMedia}
-          isGenerating={isGenerating}
-          onCompose={handleCompose}
-          onReset={handleReset}
-          onPush={handlePushToKanban}
-          previewText={previewText}
-          showMedia={showMedia}
+  const handlePick = useCallback((a: AccountCardData) => {
+    setPicked(a);
+  }, []);
+
+  const handleAdd = useCallback(() => {
+    setLoginIntent({ name: '' });
+  }, []);
+
+  const handleLoginSuccess = useCallback(() => {
+    // Refresh the picker list so the new account shows up, and
+    // close the dialog. The user can re-pick (or stay on the dialog
+    // for another add — flow is up to them).
+    reloadAccounts();
+    setLoginIntent(null);
+  }, [reloadAccounts]);
+
+  // Pre-picker gate. The shell renders the eyebrow + h1 header above
+  // this — we only own the picker grid + add tile.
+  if (!picked) {
+    return (
+      <>
+        <AccountPickerView
+          onPick={handlePick}
+          onAdd={handleAdd}
         />
-      }
-      kanbanCards={cards}
-      onGoToCrawl={handleGoToCrawl}
-      onDraftsReady={handleDraftsReady}
-      onOpenBrainFeed={handleOpenBrainFeed}
-      crawlSlot={({ onOpenBrainFeed: slotOpenBrainFeed }) => (
-        <RepostCrawlSection
-          accounts={accounts}
-          onOpenBrainFeed={slotOpenBrainFeed}
+        {loginIntent && (
+          <AccountLoginDialog
+            open={!!loginIntent}
+            onClose={() => setLoginIntent(null)}
+            accountName={loginIntent.name}
+            onSuccess={handleLoginSuccess}
+          />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <StudioFrame
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        brainContent={
+          <FacebookBrain
+            prompt={prompt}
+            setPrompt={setPrompt}
+            persona={persona}
+            setPersona={setPersona}
+            media={media}
+            setMedia={setMedia}
+            isGenerating={isGenerating}
+            onCompose={handleCompose}
+            onReset={handleReset}
+            onPush={handlePushToKanban}
+            previewText={previewText}
+            showMedia={showMedia}
+          />
+        }
+        kanbanCards={cards}
+        onGoToCrawl={handleGoToCrawl}
+        onDraftsReady={handleDraftsReady}
+        onOpenBrainFeed={handleOpenBrainFeed}
+        crawlSlot={({ onOpenBrainFeed: slotOpenBrainFeed }) => (
+          <RepostCrawlSection
+            accounts={accounts}
+            onOpenBrainFeed={slotOpenBrainFeed}
+          />
+        )}
+        kanbanSlot={() => <KanbanTab />}
+      />
+      {/* Login dialog (kept mounted after pick so user can still add
+          another account via the existing account-management UI
+          without leaving the studio). */}
+      {loginIntent && (
+        <AccountLoginDialog
+          open={!!loginIntent}
+          onClose={() => setLoginIntent(null)}
+          accountName={loginIntent.name}
+          onSuccess={handleLoginSuccess}
         />
       )}
-      kanbanSlot={() => <KanbanTab />}
-    />
+    </>
   );
 }
 

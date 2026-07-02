@@ -80,6 +80,14 @@ export interface GenerateAndScheduleRequest {
    * the same day. Length MUST equal numDrafts.
    */
   slots: { scheduledAt: string /* ISO 8601 */ }[];
+  /**
+   * When true, the backend stamps `now()` as the scheduledAt of
+   * every slot (overriding the user's slot times) so the worker
+   * picks the row up on its next tick (≤60s) and publishes via the
+   * sidecar /me path. UI hook: the "Đăng ngay khi AI xong"
+   * checkbox on SchedulePostModal.
+   */
+  publishImmediately?: boolean;
 }
 
 export interface GenerateAndScheduleResponse {

@@ -364,6 +364,16 @@ export interface FBAccount {
   status: string;
   lastUsedAt?: string;
   createdAt?: string;
+  // ── Account-picker card fields (optional, derived by useFBAccounts) ──
+  /** Days until the max session cookie expires. -1 / undefined = unknown. */
+  sessionDays?: number | null;
+  warmup?: 'fresh' | 'warming' | 'mature' | null;
+  healthScore?: number | null;
+  proxy?: {
+    type: 'none' | 'http' | 'socks5';
+    label?: string;
+    server?: string;
+  } | null;
 }
 
 export interface FBGroup {
