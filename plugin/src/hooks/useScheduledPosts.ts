@@ -43,9 +43,24 @@ export function useScheduledPosts(params: UseScheduledPostsParams) {
         accountId: params.accountId,
         limit: params.limit ?? 100,
       };
-      const res = await scheduleApi.list(query);
+      const res = (await scheduleApi.list(query)) as unknown;
       if (ctl.signal.aborted) return;
-      setRows(res.data);
+      // Same shape-tolerance as useBrainAIModels: the Go backend has
+      // shipped the scheduled-posts list under a few keys (`data`,
+      // `rows`, `posts`, bare array). Anything else → [] so the
+      // consumer's `for (const r of rows)` (KanbanTab:144) never hits
+      // "rows is not iterable".
+      const raw = res as { data?: unknown; rows?: unknown; posts?: unknown } | unknown[];
+      const list: ScheduleRow[] = Array.isArray((raw as { data?: unknown }).data)
+        ? (raw as { data: ScheduleRow[] }).data
+        : Array.isArray((raw as { rows?: unknown }).rows)
+          ? (raw as { rows: ScheduleRow[] }).rows
+          : Array.isArray((raw as { posts?: unknown }).posts)
+            ? (raw as { posts: ScheduleRow[] }).posts
+            : Array.isArray(raw)
+              ? (raw as unknown as ScheduleRow[])
+              : [];
+      setRows(list);
     } catch (e) {
       if (ctl.signal.aborted) return;
       setError(e instanceof Error ? e.message : String(e));

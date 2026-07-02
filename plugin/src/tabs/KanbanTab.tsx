@@ -74,7 +74,7 @@ export const KanbanTab: React.FC<KanbanTabProps> = ({ accountId }) => {
   const { models } = useBrainAIModels({ accountId });
   const modelNameById = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const a of models) m[a.id] = a.label;
+    for (const a of models ?? []) m[a.id] = a.label;
     return m;
   }, [models]);
 
@@ -141,7 +141,7 @@ export const KanbanTab: React.FC<KanbanTabProps> = ({ accountId }) => {
       publishing: [],
       done: [],
     };
-    for (const r of rows) {
+    for (const r of rows ?? []) {
       for (const col of COLUMNS) {
         if (col.statuses.includes(r.status)) {
           out[col.id].push(r);
