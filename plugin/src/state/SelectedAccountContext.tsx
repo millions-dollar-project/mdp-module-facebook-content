@@ -96,13 +96,12 @@ export const SelectedAccountProvider: React.FC<ProviderProps> = ({ children }) =
     return accounts.find((a) => a.name === storedName) ?? accounts.find((a) => a.id === storedName) ?? null;
   }, [accounts, storedName]);
 
-  // Auto-pick the first account when nothing is stored and the list arrives.
-  useEffect(() => {
-    if (storedName) return;
-    if (loading) return;
-    if (accounts.length === 0) return;
-    setStoredName(accounts[0].name);
-  }, [storedName, loading, accounts]);
+  // No auto-pick: the picker is always the first thing the user sees
+  // when they open FB Content. Re-selecting is a deliberate action and
+  // we keep storedName cleared until they pick. If they DO pick, the
+  // localStorage sync below makes the pick survive reloads of the
+  // plugin tree (HMR or full reload), which is the only thing an
+  // auto-pick used to buy us.
 
   // Keep storage in sync whenever we deliberately change selection.
   useEffect(() => {

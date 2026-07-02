@@ -19,6 +19,12 @@ export interface StudioFrameProps {
   onGoToCrawl?: () => void;
   onDraftsReady?: (feedIds: string[]) => void;
   /**
+   * Optional element rendered in the header strip next to the tabs —
+   * `FacebookView` uses this for a "Switch account" button that
+   * drops the picked account and bounces back to the picker.
+   */
+  headerExtras?: React.ReactNode;
+  /**
    * Callback that switches the parent tab to "Brain Feed". Surfaced
    * here so a child of the Crawl pane (e.g. `RepostCrawlSection`) can
    * trigger a tab change after auto-ingesting crawled posts.
@@ -56,6 +62,7 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
     onTabChange,
     onGoToCrawl,
     onDraftsReady,
+    headerExtras,
     onOpenBrainFeed,
     crawlSlot,
     kanbanSlot,
@@ -67,6 +74,19 @@ export function StudioFrame(props: StudioFrameProps): React.ReactElement {
 
   return (
     <div className="view-pane">
+      {headerExtras && (
+        <div
+          data-testid="studio-header-extras"
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            padding: '8px 12px 0',
+          }}
+        >
+          {headerExtras}
+        </div>
+      )}
       <StudioTabs
         active={active}
         onChange={setActive}

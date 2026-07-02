@@ -190,6 +190,7 @@ export function FacebookView(): React.ReactElement {
     account: picked,
     accounts: ctxAccounts,
     reloadAccounts: reloadCtxAccounts,
+    setAccount,
   } = useSelectedAccount();
   // Login dialog state — opened when the user clicks the "+ account"
   // tile on the picker. We track an intent object so the dialog
@@ -290,6 +291,27 @@ export function FacebookView(): React.ReactElement {
     return () => window.removeEventListener('mdp:open-kanban', handler);
   }, []);
 
+  // Picker-first entry: this plugin always shows the account picker
+  // when the user opens FB Content (even if they had a selection stored
+  // from a prior session). "Switch account" inside the studio drops the
+  // selection and bounces back to the picker too.
+  //
+  // We track "this tab session" via sessionStorage so HMR reloads
+  // during dev keep the studio mounted (don't bounce the developer
+  // back to the picker every save).
+  const SESSION_FLAG = 'mdp.fb-content.sessionStarted';
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let fresh = false;
+    try {
+      fresh = !window.sessionStorage.getItem(SESSION_FLAG);
+      if (fresh) window.sessionStorage.setItem(SESSION_FLAG, '1');
+    } catch { /* ignore */ }
+    if (fresh) setAccount(null);
+    // Only on first mount of a session; ignore dep changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Picker selection is now global. `picked` is derived from the
   // context value above so the modal/studio transition follows the
   // user everywhere — including across tab switches and HMR reloads.
@@ -299,6 +321,13 @@ export function FacebookView(): React.ReactElement {
     // in a follow-up). Until then, this handler is intentionally empty.
     void _a;
   }, []);
+
+  const handleSwitch = useCallback(() => {
+    // Drop the current selection so the picker shows again. Mirrors
+    // the "first open" behavior; preserves accounts[] so cards stay
+    // click-targetable.
+    setAccount(null);
+  }, [setAccount]);
 
   const handleAdd = useCallback(() => {
     setLoginIntent({ name: '' });
@@ -358,6 +387,18 @@ export function FacebookView(): React.ReactElement {
         onGoToCrawl={handleGoToCrawl}
         onDraftsReady={handleDraftsReady}
         onOpenBrainFeed={handleOpenBrainFeed}
+        headerExtras={picked ? (
+          <button
+            type="button"
+            data-testid="switch-account-button"
+            className="btn btn-secondary"
+            onClick={handleSwitch}
+            style={{ fontSize: 12 }}
+            title={`Đang dùng: ${picked.name}`}
+          >
+            Đổi tài khoản · {picked.name}
+          </button>
+        ) : null}
         crawlSlot={({ onOpenBrainFeed: slotOpenBrainFeed }) => (
           <RepostCrawlSection
             accounts={accounts}
