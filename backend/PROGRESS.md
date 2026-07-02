@@ -184,7 +184,7 @@ backend/
 ### Configuration for Phase 2
 Add to `.env`:
 ```
-SIDECAR_URL=http://localhost:9001
+SIDECAR_URL=http://localhost:9002
 OPENAI_API_KEY=sk-...
 ```
 

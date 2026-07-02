@@ -15,14 +15,14 @@
 #   # Crawl 10 posts without date filter (caller = all-time)
 #   ./scripts/crawl-e2e.sh https://www.facebook.com/somepage "" 10
 #
-# Sidecar defaults to :9001; backend defaults to :8081.
+# Sidecar defaults to :9002; backend defaults to :8081.
 
 set -euo pipefail
 
 PAGE_URL="${1:-https://www.facebook.com/thietketruongmamnonecohome}"
 UNTIL_DATE="${2:-2026-06-12}"
 LIMIT="${3:-4}"
-SIDECAR_URL="http://127.0.0.1:9001"
+SIDECAR_URL="http://127.0.0.1:9002"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -34,7 +34,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[e2e] starting sidecar on :9001…"
+echo "[e2e] starting sidecar on :9002…"
 (
   cd "$REPO_ROOT/sidecar"
   node src/index.js

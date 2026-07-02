@@ -28,7 +28,7 @@ import (
 
 // Options controls EnsureRunning behavior.
 type Options struct {
-	// BaseURL is the URL the sidecar listens on, e.g. "http://localhost:9001".
+	// BaseURL is the URL the sidecar listens on, e.g. "http://localhost:9002".
 	BaseURL string
 	// ScriptPath is the absolute path to the sidecar's entry point
 	// (sidecar/src/index.js).
@@ -181,7 +181,7 @@ func waitForHealth(ctx context.Context, url string, timeout time.Duration) error
 // Returns empty string when not parseable.
 func portFromURL(rawURL string) string {
 	// We don't want a full URL parse here because BaseURL is a friendly
-	// value like "http://localhost:9001" without a trailing path. A
+	// value like "http://localhost:9002" without a trailing path. A
 	// simple substring scan is sufficient and avoids net/url import
 	// overhead.
 	const scheme = "http://"

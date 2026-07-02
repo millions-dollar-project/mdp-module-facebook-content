@@ -56,7 +56,7 @@ type Config struct {
 	GraphAPIBase        string // e.g. "https://graph.facebook.com"
 
 	// --- Sidecar (Node.js Playwright micro-service) ---
-	SidecarURL         string // e.g. "http://localhost:9001"
+	SidecarURL         string // e.g. "http://localhost:9002"
 	SidecarAutostart   bool   // spawn sidecar as a child process if not already running
 	SidecarScriptPath  string // absolute path to sidecar/src/index.js
 	SidecarNodeBin     string // path to node binary
@@ -113,7 +113,7 @@ func Load() (*Config, error) {
 		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
 
 		// Sidecar
-		SidecarURL:        getenv("SIDECAR_URL", "http://localhost:9001"),
+		SidecarURL:        getenv("SIDECAR_URL", "http://localhost:9002"),
 		SidecarAutostart:  getenv("SIDECAR_AUTOSTART", "true") == "true",
 		SidecarScriptPath: getenv("SIDECAR_SCRIPT_PATH", defaultSidecarScriptPath()),
 		SidecarNodeBin:    getenv("SIDECAR_NODE_BIN", "node"),

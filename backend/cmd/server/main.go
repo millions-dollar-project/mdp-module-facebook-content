@@ -51,7 +51,7 @@ func main() {
 
 	// Sidecar lifecycle: make sure the Node.js Playwright micro-service is
 	// up before we accept traffic that depends on it. In dev this avoids
-	// the "click Add account → port 9001 refused → orphan row" trap. In
+	// the "click Add account → port 9002 refused → orphan row" trap. In
 	// production (k8s/docker) the sidecar is a separate pod, so callers
 	// should set SIDECAR_AUTOSTART=false to skip the spawn step.
 	sidecarCleanup, err := sidecarctl.EnsureRunning(context.Background(), sidecarctl.Options{

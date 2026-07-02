@@ -10,7 +10,10 @@
  *   POST /account-login/cancel  - close the visible browser early
  *   POST /kling/generate        - generate images/videos on kling.ai
  *
- * Runs on port 9001 by default (env SIDECAR_PORT).
+ * Runs on port 9002 by default (env SIDECAR_PORT). The legacy
+ * mdp-module-facebook sidecar owns :9001 in shipped app, so we use
+ * :9002 here to avoid the race where both modules try to bind the
+ * same port. Override SIDECAR_PORT in dev if you need to share.
  */
 const express = require("express");
 const cors = require("cors");
@@ -25,7 +28,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 
-const PORT = process.env.SIDECAR_PORT || 9001;
+const PORT = process.env.SIDECAR_PORT || 9002;
 
 // Health
 app.get("/health", (_req, res) => res.json({ status: "ok" }));

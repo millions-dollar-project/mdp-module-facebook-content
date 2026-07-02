@@ -41,22 +41,28 @@ make test                 # go test ./... (uses testcontainers, needs Docker)
 ### Sidecar (Node.js Playwright micro-service)
 
 The Go backend depends on a Node.js Express + Playwright sidecar that lives at
-`mdp-module-facebook/sidecar/`. It listens on `http://localhost:9001` (env
+`mdp-module-facebook-content/sidecar/`. It listens on `http://localhost:9002` (env
 `SIDECAR_PORT`) and is what actually drives the visible Chrome browser for
 account login, group posting, and Kling AI generation.
 
+The legacy `mdp-module-facebook/sidecar` (in the separate mdp-module-facebook
+repo) also defaults to :9001. We use :9002 here to avoid the port-9001 race in
+shipped app where the legacy module grabs the port first. If you need to
+revert, set `SIDECAR_PORT=9001` on the sidecar and `SIDECAR_URL=http://localhost:9001`
+on the backend.
+
 **Auto-start:** `cmd/server` checks `GET /health` on `SIDECAR_URL` at boot. If
 nothing is listening and `SIDECAR_AUTOSTART=true` (default), it spawns
-`node <repo>/mdp-module-facebook/sidecar/src/index.js` as a tracked child
+`node <repo>/mdp-module-facebook-content/sidecar/src/index.js` as a tracked child
 process and waits for `/health` to come up (timeout `SIDECAR_START_TIMEOUT`,
 default 5s). The child is killed automatically when the backend shuts down.
 **You should not need to start the sidecar by hand.**
 
 To run the sidecar manually (e.g. for a Playwright-only debug session):
 ```bash
-cd mdp-module-facebook/sidecar
+cd mdp-module-facebook-content/sidecar
 pnpm install              # first time only
-pnpm dev                  # listens on :9001 by default
+pnpm dev                  # listens on :9002 by default
 ```
 
 To disable auto-start (production / k8s / docker-compose where the sidecar

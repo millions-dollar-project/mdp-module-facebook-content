@@ -156,7 +156,7 @@ export async function runCampaign(id: string): Promise<{ success: boolean }> {
 /**
  * Phase 2: route through kit-accounts sidecar login/start. The kit handler
  * at /kit-accounts/login/start forwards verbatim to the Node sidecar's
- * /account-login/start (mounted on :9001 by default) and returns the
+ * /account-login/start (mounted on :9002 by default) and returns the
  * Playwright sessionId for polling.
  */
 export async function createAccount(payload: CreateAccountPayload): Promise<{

@@ -42,7 +42,7 @@ function bootSidecar(stubScrapePage) {
   // Clear index.js from cache so it re-evaluates with the stubbed
   // scraper. The previous run (if any) cached the real scraper ref.
   delete require.cache[INDEX_PATH];
-  // index.js calls app.listen() with PORT=process.env.SIDECAR_PORT||9001
+  // index.js calls app.listen() with PORT=process.env.SIDECAR_PORT||9002
   // — pick a random port to avoid clashing with a real sidecar.
   const port = 19000 + Math.floor(Math.random() * 1000);
   process.env.SIDECAR_PORT = String(port);
