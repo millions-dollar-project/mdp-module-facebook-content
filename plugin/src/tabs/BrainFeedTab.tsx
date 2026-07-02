@@ -18,6 +18,7 @@ import { useBrainDelete } from '../hooks/useBrainDelete';
 import { useBrainGenerate } from '../hooks/useBrainGenerate';
 import { useFBAccounts } from '../hooks/useRepost';
 import { accountUUIDFromName } from '../lib/accountUUID';
+import { useSelectedAccount } from '../state/SelectedAccountContext';
 import { BrainFeedHeader, type BrainFeedFilterState } from './BrainFeedHeader';
 import { BrainFeedRow } from './BrainFeedRow';
 import { BrainFeedPagination } from './BrainFeedPagination';
@@ -40,21 +41,37 @@ export const BrainFeedTab: React.FC<BrainFeedTabProps> = ({ onDraftsReady }) => 
   const [peekId, setPeekId] = useState<string | null>(null);
   const [dashboardTick, setDashboardTick] = useState(0);
   // kit-account scoping: dropdown lists every kit-account; the SHA-1 v5
-  // UUID of the chosen name is what we forward to the backend. We store
-  // the *name* in state so the dropdown label stays human-readable and
-  // derive the UUID directly from that name (synchronous, doesn't depend
-  // on useFBAccounts having resolved). `accountUUIDFromName(name)` is
-  // the authoritative source and matches the Go service byte-for-byte.
-  const [selectedAccountName, setSelectedAccountName] = useState<string>('');
-  const { data: accounts } = useFBAccounts();
-  // Auto-select the first kit-account once the list arrives so the
-  // scope is always a concrete UUID (no more "all accounts" escape
-  // hatch — every dashboard query is account-bound).
-  useEffect(() => {
-    if (!selectedAccountName && accounts && accounts.length > 0) {
-      setSelectedAccountName(accounts[0].name);
-    }
-  }, [accounts, selectedAccountName]);
+  // UUID of the chosen name is what we forward to the backend. The
+  // source of truth is now the plugin-wide SelectedAccountContext — the
+  // dropdown is just the visible editor. We keep a local mirror so the
+  // UUID derivation runs reactively, and we sync it back to the context
+  // on change so PublishView / RepostCrawlSection see the same pick.
+  const { account: ctxAccount, accounts: ctxAccounts, setAccountById } = useSelectedAccount();
+  const { data: rawAccounts } = useFBAccounts();
+  // Reuse the kit shape already in context; fall back to the raw hook
+  // only for the dropdown label/status mapping. Same proxy
+  // normalization as SelectedAccountContext so the dropdown matches
+  // the picker card.
+  const accounts = ctxAccounts.length > 0
+    ? ctxAccounts
+    : rawAccounts.map((a) => ({
+        id: a.id, name: a.name, platform: 'facebook' as const,
+        status: 'active' as const,
+        proxy: a.proxy
+          ? {
+              type: a.proxy.type,
+              label: a.proxy.label ?? undefined,
+              server: a.proxy.server ?? undefined,
+            }
+          : undefined,
+        sessionDays: a.sessionDays ?? null,
+        warmup: a.warmup ?? undefined, healthScore: a.healthScore ?? undefined,
+      }));
+  const selectedAccountName = ctxAccount?.name ?? '';
+  const setSelectedAccountName = (next: string) => {
+    const match = accounts.find((a) => a.name === next);
+    if (match) setAccountById(match.id);
+  };
   const accountUUID = useMemo(() => {
     if (!selectedAccountName) return '';
     return accountUUIDFromName(selectedAccountName);

@@ -4,7 +4,7 @@ import { AccountPickerView } from './AccountPickerView';
 import { FormField, PillGroup, PlatformIcon } from '@mdp-private/kit-ui';
 import type { AccountCardData, PillOption, KanbanCardData } from '@mdp-private/kit-ui';
 import { useToast } from '../components';
-import { useFBAccounts } from '../hooks';
+import { useSelectedAccount } from '../state/SelectedAccountContext';
 import { AccountLoginDialog } from '../tabs/AccountLoginDialog';
 import { RepostCrawlSection } from '../tabs/RepostCrawlSection';
 import { KanbanTab } from '../tabs/KanbanTab';
@@ -181,11 +181,16 @@ function FacebookBrain({
 export function FacebookView(): React.ReactElement {
   const [activeTab, setActiveTab] = useState('brain');
   const [cards, setCards] = useState<KanbanCardData[]>(SEED_CARDS);
-  // The picker gate. Null = no account picked yet → render the
-  // picker view. Once picked, the user enters StudioFrame for the
-  // rest of the session. Reloading the tab resets the gate (per
-  // product spec: "Luôn hiện").
-  const [picked, setPicked] = useState<AccountCardData | null>(null);
+  // The plugin-wide selected account (kit-accounts-backed) comes from
+  // SelectedAccountContext. The provider seeds itself from localStorage
+  // and exposes the same AccountCardData the picker uses, so every
+  // tab — Brain Feed, Repost Crawl, Publish queue — sees the same
+  // choice without carrying its own local useState.
+  const {
+    account: picked,
+    accounts: ctxAccounts,
+    reloadAccounts: reloadCtxAccounts,
+  } = useSelectedAccount();
   // Login dialog state — opened when the user clicks the "+ account"
   // tile on the picker. We track an intent object so the dialog
   // knows which profilePath/email to suggest.
@@ -257,7 +262,12 @@ export function FacebookView(): React.ReactElement {
   // RepostCrawlSection needs real account/group lists to drive its
   // crawl form. The schedule modal is self-contained now (it
   // dispatches `mdp:open-kanban` so we switch the tab from here).
-  const { data: accounts, reload: reloadAccounts } = useFBAccounts();
+  // Source of truth is now the SelectedAccountContext (which also
+  // keeps `accounts` in AccountCardData shape); we keep this name
+  // here so the rest of the file's `<RepostCrawlSection accounts={...} />`
+  // payload doesn't need to change.
+  const accounts = ctxAccounts;
+  const reloadAccounts = reloadCtxAccounts;
 
   // Bridge for legacy mounts of <RepostCrawlSection /> (e.g. inside
   // RepostTab) where the parent can't easily pass onOpenBrainFeed down.
@@ -280,8 +290,14 @@ export function FacebookView(): React.ReactElement {
     return () => window.removeEventListener('mdp:open-kanban', handler);
   }, []);
 
-  const handlePick = useCallback((a: AccountCardData) => {
-    setPicked(a);
+  // Picker selection is now global. `picked` is derived from the
+  // context value above so the modal/studio transition follows the
+  // user everywhere — including across tab switches and HMR reloads.
+  const handlePick = useCallback((_a: AccountCardData) => {
+    // No-op: context setter already lives on the picker's onPick
+    // (we'll switch AccountPickerView to write directly to the context
+    // in a follow-up). Until then, this handler is intentionally empty.
+    void _a;
   }, []);
 
   const handleAdd = useCallback(() => {

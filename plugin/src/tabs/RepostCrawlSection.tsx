@@ -29,6 +29,7 @@ import type { FBAccount, CrawledPostReal } from '../lib/types';
 import { useBrainIngest } from '../hooks/useBrainIngest';
 import { useFBAccounts, createAccount, pollAccountLoginStatus } from '../hooks/useRepost';
 import { SchedulePostModal } from './SchedulePostModal';
+import { useSelectedAccount } from '../state/SelectedAccountContext';
 
 type CrawlMode = 'page' | 'account';
 
@@ -110,13 +111,22 @@ export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
   // tripping the temporal dead zone (TDZ) at first render.
   const NEWSFEED_URL = 'https://www.facebook.com/';
 
+  // Source of truth for the kit-account used by crawl + ingest is now
+  // SelectedAccountContext (plugin-wide). Anything we set here shows up
+  // in Brain Feed / Publish queue too, so the user's "click acc A in
+  // the picker" actually flows through every tab.
+  const { account: ctxAccount } = useSelectedAccount();
   const [pageUrl, setPageUrl] = React.useState('');
   const [maxPosts, setMaxPosts] = React.useState(10);
   // Tự fill ngày hiện tại vào "Từ ngày" — user yêu cầu mặc định là hôm nay.
   // Lưu ý: nếu page chưa đăng bài nào trong ngày thì sẽ trả 0 kết quả;
   // user có thể xoá trống ô này để lấy N bài mới nhất không giới hạn ngày.
   const [untilDate, setUntilDate] = React.useState('');
-  const [selectedAccountId, setSelectedAccountId] = React.useState('');
+  // `selectedAccountId` is now a thin mirror of the context — we still
+  // hold it locally so the existing effect that auto-fills on first
+  // load keeps working. Any explicit selection the user makes on the
+  // crawl picker writes through to the context too.
+  const [selectedAccountId, setSelectedAccountId] = React.useState<string>(ctxAccount?.id ?? '');
   const [loading, setLoading] = React.useState(false);
   // Mode selector: 'page' (URL tự do) vs 'account' (mdp-crawler source
   // đã login). Khi 'account' user chọn 1 source từ /api/sources.
@@ -314,11 +324,28 @@ export const RepostCrawlSection: React.FC<Props> = ({ onOpenBrainFeed }) => {
     setAccShowAdvanced(false);
   };
 
+  // Sync the local selectedAccountId mirror with the context (it may
+  // have been changed by BrainFeed / Publish tabs). Only sync down
+  // when the values actually differ so we don't fight the user's most
+  // recent click.
   React.useEffect(() => {
-    if (!selectedAccountId && fbAccounts.length > 0) {
+    if (ctxAccount?.id && ctxAccount.id !== selectedAccountId) {
+      setSelectedAccountId(ctxAccount.id);
+    }
+    // SelectedAccountId intentionally omitted from deps: we don't want
+    // to re-write the context every time the local mirror flickers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctxAccount?.id]);
+
+  // Bootstrap: if neither the context nor the local mirror has picked
+  // anything yet, fall back to the most recently created account
+  // (matches the prior behavior — last in the list).
+  React.useEffect(() => {
+    if (!selectedAccountId && !ctxAccount && fbAccounts.length > 0) {
       setSelectedAccountId(fbAccounts[fbAccounts.length - 1].id);
     }
-  }, [fbAccounts, selectedAccountId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fbAccounts.length]);
 
   const selectedAccount = React.useMemo(() => {
     return fbAccounts.find((account) => account.id === selectedAccountId) ?? fbAccounts[fbAccounts.length - 1] ?? null;

@@ -15,6 +15,7 @@ import { Card, Button, DataTable, Badge } from '../components';
 import { useRepostQueue } from '../hooks';
 import { formatGmt7Short } from '../lib/time';
 import type { RepostJob, FBAccount, FBGroup } from '../lib/types';
+import { useSelectedAccount } from '../state/SelectedAccountContext';
 
 interface Props {
   accounts: FBAccount[];
@@ -31,8 +32,15 @@ interface Props {
 }
 
 export const PublishView: React.FC<Props> = ({ accounts, groups, defaultAccountId, onDefaultConsumed }) => {
-  const [selectedAccount, setSelectedAccount] = React.useState<string | null>(null);
   const { jobs, loading, refresh } = useRepostQueue();
+  // Selected account is now plugin-scoped — sourced from
+  // SelectedAccountContext so the row of account buttons here stays
+  // in sync with the Brain Feed dropdown and the Repost Crawl picker.
+  const { account: ctxAccount, setAccountById } = useSelectedAccount();
+  // Account ids in the legacy `accounts` prop and in the context share
+  // the same kit-accounts UUID namespace, so this lookup stays valid
+  // for the filter below.
+  const selectedAccount = ctxAccount?.id ?? '';
 
   // Apply the parent's hint exactly once. If the account isn't in the
   // list yet (still loading), fall back gracefully on the next render
@@ -40,15 +48,10 @@ export const PublishView: React.FC<Props> = ({ accounts, groups, defaultAccountI
   React.useEffect(() => {
     if (!defaultAccountId) return;
     if (accounts.some((a) => a.id === defaultAccountId)) {
-      setSelectedAccount(defaultAccountId);
+      setAccountById(defaultAccountId);
       onDefaultConsumed?.();
     }
-  }, [defaultAccountId, accounts, onDefaultConsumed]);
-
-  React.useEffect(() => {
-    if (selectedAccount && accounts.some((a) => a.id === selectedAccount)) return;
-    setSelectedAccount(accounts[0]?.id ?? null);
-  }, [accounts, selectedAccount]);
+  }, [defaultAccountId, accounts, onDefaultConsumed, setAccountById]);
 
   // Always filter jobs to the selected account.
   const visibleJobs = React.useMemo(() => {
@@ -72,7 +75,8 @@ export const PublishView: React.FC<Props> = ({ accounts, groups, defaultAccountI
 
   return (
     <div className="fb-publish-view">
-      {/* Account picker tabs */}
+      {/* Account picker tabs — writes to SelectedAccountContext so Brain
+          Feed / Repost Crawl stay in sync. */}
       <Card>
         <h3 style={{ marginTop: 0 }}>Tài khoản đăng</h3>
         <p className="fb-muted" style={{ fontSize: 12, marginTop: 4 }}>
@@ -86,7 +90,7 @@ export const PublishView: React.FC<Props> = ({ accounts, groups, defaultAccountI
                 key={a.id}
                 size="sm"
                 variant={selectedAccount === a.id ? 'primary' : 'ghost'}
-                onClick={() => setSelectedAccount(a.id)}
+                onClick={() => setAccountById(a.id)}
               >
                 {a.name} ({count})
               </Button>

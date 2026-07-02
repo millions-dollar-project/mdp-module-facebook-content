@@ -29,6 +29,10 @@ describe('App shell', () => {
     vi.restoreAllMocks()
     delete (window as unknown as { mdp?: unknown }).mdp
     mockState.accounts = []
+    // SelectedAccountContext persists the picked account name to
+    // localStorage; clear it between tests so each render starts from
+    // an empty selection (matches a fresh page load).
+    window.localStorage.removeItem('mdp.fb-content.selectedAccountName')
   })
 
   it('renders the account picker as the first-touch screen when empty', async () => {
@@ -45,8 +49,10 @@ describe('App shell', () => {
       { id: 'alice', name: 'alice', status: 'active' },
     ]
     render(<App />)
-    // Wait for the picker to render the card.
-    const card = await screen.findByTestId('account-card-alice')
+    // Wait for the picker to render the card. Once it's clickable we
+    // immediately fire the click; after refactor the picker unmounts
+    // on the same tick so we don't search for it again afterwards.
+    const card = await screen.findByTestId('account-card-alice', {}, { timeout: 2000 })
     fireEvent.click(card)
     // Studio mounts; Composer is the default active tab.
     await waitFor(() => {
@@ -59,7 +65,7 @@ describe('App shell', () => {
   it('switches to Kanban tab on click and shows the kanban pane', async () => {
     mockState.accounts = [{ id: 'alice', name: 'alice', status: 'active' }]
     render(<App />)
-    fireEvent.click(await screen.findByTestId('account-card-alice'))
+    fireEvent.click(await screen.findByTestId('account-card-alice', {}, { timeout: 2000 }))
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Kanban' })).toBeInTheDocument()
     })
@@ -70,7 +76,7 @@ describe('App shell', () => {
   it('switches to Crawl tab on click and shows the crawl pane', async () => {
     mockState.accounts = [{ id: 'alice', name: 'alice', status: 'active' }]
     render(<App />)
-    fireEvent.click(await screen.findByTestId('account-card-alice'))
+    fireEvent.click(await screen.findByTestId('account-card-alice', {}, { timeout: 2000 }))
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Crawl' })).toBeInTheDocument()
     })

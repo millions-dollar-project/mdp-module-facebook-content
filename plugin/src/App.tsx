@@ -1,6 +1,7 @@
 import React from 'react';
 import { FacebookView } from './views/FacebookView';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SelectedAccountProvider } from './state/SelectedAccountContext';
 
 // Inline fallback: a guaranteed-to-render banner so a blank canvas
 // can never silently happen. If even this doesn't show, the bundle
@@ -29,9 +30,11 @@ export const App: React.FC = () => {
   return (
     <div className="view-pane" data-testid="fb-content-root">
       <FallbackBanner />
-      <ErrorBoundary label="FacebookView">
-        <FacebookView />
-      </ErrorBoundary>
+      <SelectedAccountProvider>
+        <ErrorBoundary label="FacebookView">
+          <FacebookView />
+        </ErrorBoundary>
+      </SelectedAccountProvider>
     </div>
   );
 };
