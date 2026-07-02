@@ -31,9 +31,23 @@ export function useBrainAIModels(opts: UseBrainAIModelsOptions = {}) {
     abortRef.current = ctl;
     setLoading(true);
     try {
-      const res = await fetchBrainAIModels(ctl.signal, accountId);
+      const res = (await fetchBrainAIModels(ctl.signal, accountId)) as unknown;
       if (ctl.signal.aborted) return;
-      setModels(res.data);
+      // The Go backend historically returns the list under a few
+      // different keys (`data`, `models`, or a bare array). Treat any
+      // non-array as empty so the consumer's `.map()` never crashes
+      // on undefined — Phase 4 defensive guard from a real
+      // "Cannot read properties of undefined (reading 'map')" in
+      // SchedulePostModal:88 (useMemo over `models`).
+      const raw = res as { data?: unknown; models?: unknown } | unknown[];
+      const list: BrainAIModel[] = Array.isArray((raw as { data?: unknown }).data)
+        ? (raw as { data: BrainAIModel[] }).data
+        : Array.isArray((raw as { models?: unknown }).models)
+          ? (raw as { models: BrainAIModel[] }).models
+          : Array.isArray(raw)
+            ? (raw as unknown as BrainAIModel[])
+            : [];
+      setModels(list);
       setError(null);
     } catch (e) {
       if (ctl.signal.aborted) return;

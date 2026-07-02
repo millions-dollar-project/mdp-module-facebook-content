@@ -131,9 +131,13 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
     setSlots((prev) => buildSlots(clamped, prev));
   }, []);
 
+  // Defensive: even though `useBrainAIModels` now normalizes to `[]`,
+  // the modal also exposes this defensively in case the hook is fed
+  // an alternate shape from a future backend. Prevents
+  // "Cannot read properties of undefined (reading 'map')" at render.
   const modelOptions = useMemo(
     () =>
-      models.map((m) => ({
+      (models ?? []).map((m) => ({
         value: m.id,
         label: m.label,
       })),
@@ -293,7 +297,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
             Khung giờ đăng (tự nhập — không tự động cách nhau)
           </div>
           <ul className="schedule-modal__slot-list">
-            {slots.map((s, i) => (
+            {(slots ?? []).map((s, i) => (
               <li key={i} className="schedule-modal__slot-item">
                 <span className="schedule-modal__slot-idx">#{i + 1}</span>
                 <input
@@ -328,7 +332,7 @@ export const SchedulePostModal: React.FC<SchedulePostModalProps> = ({
           <div className="schedule-modal__failures">
             <strong>{failures.length} lỗi:</strong>
             <ul>
-              {failures.map((f, i) => (
+              {(failures ?? []).map((f, i) => (
                 <li key={i}>
                   Ô #{f.index + 1} — {f.stage}: {f.message}
                 </li>
