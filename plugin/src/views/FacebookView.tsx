@@ -6,6 +6,7 @@ import type { AccountCardData, PillOption, KanbanCardData } from '@mdp-private/k
 import { useToast } from '../components';
 import { useSelectedAccount } from '../state/SelectedAccountContext';
 import { AccountLoginDialog } from '../tabs/AccountLoginDialog';
+import { AddFacebookAccountDialog } from '../tabs/AddFacebookAccountDialog';
 import { RepostCrawlSection } from '../tabs/RepostCrawlSection';
 import { KanbanTab } from '../tabs/KanbanTab';
 
@@ -41,6 +42,13 @@ interface BrainComposerProps {
   previewText: string;
   showMedia: string;
 }
+
+// Login intent carried between the name modal (gates the add flow)
+// and the AccountLoginDialog (drives Chromium). `profilePath` is a
+// fresh per-click path so fast double-clicks can't collide on the
+// underlying chrome profile dir; `name` is stable and lands under
+// ~/mdp-data/accounts/<name>/ regardless.
+type LoginIntent = { name: string; profilePath?: string };
 
 function FacebookBrain({
   prompt,
@@ -192,10 +200,13 @@ export function FacebookView(): React.ReactElement {
     reloadAccounts: reloadCtxAccounts,
     setAccount,
   } = useSelectedAccount();
-  // Login dialog state — opened when the user clicks the "+ account"
-  // tile on the picker. We track an intent object so the dialog
-  // knows which profilePath/email to suggest.
-  const [loginIntent, setLoginIntent] = useState<{ name: string } | null>(null);
+  // Login dialog state — opened after the user confirms a name in
+  // AddFacebookAccountDialog. We track an intent object so the dialog
+  // knows which profilePath/name to suggest. The name modal is the
+  // gate that produces the `name`; without it the sidecar would
+  // short-circuit on persistKitAccount().
+  const [loginIntent, setLoginIntent] = useState<LoginIntent | null>(null);
+  const [nameModalOpen, setNameModalOpen] = useState(false);
   const toast = useToast();
 
   const [prompt, setPrompt] = useState('');
@@ -330,7 +341,35 @@ export function FacebookView(): React.ReactElement {
   }, [setAccount]);
 
   const handleAdd = useCallback(() => {
-    setLoginIntent({ name: '' });
+    // Step 1: open the name modal. The dialog hands a chosen name
+    // back via handleNameConfirm; only then do we mount the
+    // AccountLoginDialog. This mirrors FB Studio's working flow —
+    // skipping the modal leaves AccountLoginDialog with name='',
+    // which the sidecar's persistKitAccount() silently drops.
+    setNameModalOpen(true);
+  }, []);
+
+  const handleNameConfirm = useCallback((name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    // Allocate a fresh chromium profile dir per click — the nonce
+    // pattern matches FB Studio so fast double-clicks can't collide
+    // on the chrome profile lockfile. The kit-accounts `name`
+    // (the trimmed arg) is what ~/mdp-data/accounts/<name>/
+    // resolves to; profilePath is purely the temporary local
+    // chromium scratch dir.
+    const ts = Date.now();
+    const nonce =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().slice(0, 8)
+        : Math.random().toString(16).slice(2, 10);
+    const profilePath = `~/.mdp/facebook/profiles/${trimmed}-${ts}-${nonce}`;
+    setNameModalOpen(false);
+    setLoginIntent({ name: trimmed, profilePath });
+  }, []);
+
+  const closeLoginDialog = useCallback(() => {
+    setLoginIntent(null);
   }, []);
 
   const handleLoginSuccess = useCallback(() => {
@@ -350,11 +389,18 @@ export function FacebookView(): React.ReactElement {
           onPick={handlePick}
           onAdd={handleAdd}
         />
+        <AddFacebookAccountDialog
+          open={nameModalOpen}
+          existingNames={(accounts ?? []).map((a) => a.name)}
+          onClose={() => setNameModalOpen(false)}
+          onConfirm={handleNameConfirm}
+        />
         {loginIntent && (
           <AccountLoginDialog
             open={!!loginIntent}
-            onClose={() => setLoginIntent(null)}
+            onClose={closeLoginDialog}
             accountName={loginIntent.name}
+            profilePath={loginIntent.profilePath}
             onSuccess={handleLoginSuccess}
           />
         )}
@@ -413,11 +459,20 @@ export function FacebookView(): React.ReactElement {
       {loginIntent && (
         <AccountLoginDialog
           open={!!loginIntent}
-          onClose={() => setLoginIntent(null)}
+          onClose={closeLoginDialog}
           accountName={loginIntent.name}
+          profilePath={loginIntent.profilePath}
           onSuccess={handleLoginSuccess}
         />
       )}
+      {/* Name modal — gate for the add flow when the user is already
+          inside the studio and wants to add another account. */}
+      <AddFacebookAccountDialog
+        open={nameModalOpen}
+        existingNames={(accounts ?? []).map((a) => a.name)}
+        onClose={() => setNameModalOpen(false)}
+        onConfirm={handleNameConfirm}
+      />
     </>
   );
 }
