@@ -1,11 +1,28 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+// CORS / Private Network Access (PNA) headers — Chrome ≥124 enforces
+// PNA on cross-origin fetches between loopback / private IPs. Shell
+// (http://localhost:5173) loads this plugin via ESM import from
+// http://localhost:5176/src/main.tsx, which counts as a private-
+// network request that needs explicit opt-in. Without these headers
+// the user sees "Failed to load Facebook Content Module: dev load
+// failed for facebook-content" in the shell and the plugin never
+// registers. Same trick applies to any plugin whose devPort sits on
+// a different loopback port than the shell.
+const pnaHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Allow-Private-Network': 'true',
+};
+
 export default defineConfig(({ command, mode }) => ({
   server: {
     port: 5176,
     strictPort: true,
     cors: true,
+    headers: pnaHeaders,
   },
   plugins: [react()],
   define: {
