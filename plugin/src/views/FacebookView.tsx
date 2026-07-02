@@ -1,8 +1,8 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { StudioFrame } from './StudioFrame';
+import type { AutomationConfig, ReplyRule } from './StudioFrame';
 import { AccountPickerView } from './AccountPickerView';
-import { FormField, PillGroup, PlatformIcon } from '@mdp-private/kit-ui';
-import type { AccountCardData, PillOption, KanbanCardData } from '@mdp-private/kit-ui';
+import type { AccountCardData, KanbanCardData } from '@mdp-private/kit-ui';
 import { useToast } from '../components';
 import { useSelectedAccount } from '../state/SelectedAccountContext';
 import { AccountLoginDialog } from '../tabs/AccountLoginDialog';
@@ -10,98 +10,171 @@ import { AddFacebookAccountDialog } from '../tabs/AddFacebookAccountDialog';
 import { RepostCrawlSection } from '../tabs/RepostCrawlSection';
 import { KanbanTab } from '../tabs/KanbanTab';
 
+// The lifecycle kanban is a browser-sim (no real API) board matching the
+// design-mockup: ideas → todo → progress → confirm → published.
 const SEED_CARDS: KanbanCardData[] = [
   { id: 'fb-1', title: 'Aula F75 deal roundup', desc: 'Tổng hợp deal bàn phím cơ', status: 'todo', profile: 'Affiliate Tech Page', date: '2026-06-22', platform: 'facebook' },
-  { id: 'fb-2', title: 'Silent switch shootout', desc: 'So sánn silent switches 2026', status: 'progress', profile: 'Affiliate Tech Page', date: '2026-06-23', platform: 'facebook' },
+  { id: 'fb-2', title: 'Silent switch shootout', desc: 'So sánh silent switches 2026', status: 'progress', profile: 'Affiliate Tech Page', date: '2026-06-23', platform: 'facebook' },
   { id: 'fb-3', title: 'GenZ meme keyboard', desc: 'Meme trending keyboard post', status: 'confirm', profile: 'GenZ Viral', date: '2026-06-21', platform: 'facebook' },
 ];
 
-const PERSONA_OPTIONS: PillOption[] = [
+const PROFILE_OPTIONS = [
   { value: 'tech', label: 'Tech Reviewer / Affiliate' },
   { value: 'soccer', label: 'Football Trend Master' },
   { value: 'meme', label: 'GenZ Viral Meme Hub' },
 ];
 
-const MEDIA_OPTIONS: PillOption[] = [
-  { value: 'text', label: 'Text Only' },
-  { value: 'image', label: 'Generate AI Cover' },
-  { value: 'video', label: 'Link AI Video' },
+const IDEA_SEEDS = [
+  'Review nhanh + link affiliate',
+  'Khịa trend tech tuần này',
+  'Tóm tắt tin nóng (text)',
+  'So sánh 2 sản phẩm hot',
+  'Meme bắt trend cho GenZ',
 ];
+
+// Sample FB draft the "AI Brain" produces (mirrors triggerBrainPostGeneration).
+const FB_SAMPLE =
+  '🔥 DEAL BÀN PHÍM CƠ HOT NHẤT HÔM NAY 🔥\n\nAula F75 Silent - chiếc bàn phím êm ái nhất năm nay đã lên kệ với giá ưu đãi cực sốc cho anh em cú đêm. Giá chỉ còn 890k tại link bio! #MechanicalKeyboard #Affiliate';
 
 interface BrainComposerProps {
   prompt: string;
   setPrompt: (v: string) => void;
-  persona: string;
-  setPersona: (v: string) => void;
+  profile: string;
+  setProfile: (v: string) => void;
+  monetizeType: string;
+  setMonetizeType: (v: string) => void;
+  monetizeLink: string;
+  setMonetizeLink: (v: string) => void;
   media: string;
   setMedia: (v: string) => void;
   isGenerating: boolean;
-  onCompose: () => void;
-  onReset: () => void;
+  status: string;
+  onGenerate: () => void;
+  onRegenerate: () => void;
+  onDiscard: () => void;
   onPush: () => void;
+  onSuggestIdeas: () => void;
+  onJumpVideo: () => void;
   previewText: string;
   showMedia: string;
+  feedback: string;
+  setFeedback: (v: string) => void;
+  previewRef: React.RefObject<HTMLDivElement>;
 }
 
-// Login intent carried between the name modal (gates the add flow)
-// and the AccountLoginDialog (drives Chromium). `profilePath` is a
-// fresh per-click path so fast double-clicks can't collide on the
-// underlying chrome profile dir; `name` is stable and lands under
-// ~/mdp-data/accounts/<name>/ regardless.
-type LoginIntent = { name: string; profilePath?: string };
-
-function FacebookBrain({
-  prompt,
-  setPrompt,
-  persona,
-  setPersona,
-  media,
-  setMedia,
-  isGenerating,
-  onCompose,
-  onReset,
-  onPush,
-  previewText,
-  showMedia,
-}: BrainComposerProps): React.ReactElement {
+function FacebookBrain(p: BrainComposerProps): React.ReactElement {
+  const ready = !!p.previewText && !p.isGenerating;
   return (
-    <div className="studio-pane active" data-testid="brain-pane">
+    <div className="studio-pane active" id="fb-studio-brain" data-testid="brain-pane">
       <div className="split-composer">
         <div className="composer-left double-bezel">
           <div className="card-inner">
-            <h3>Initiate Idea with AI Brain</h3>
+            <div className="composer-head">
+              <h3>Initiate Idea with AI Brain</h3>
+              <button
+                type="button"
+                className="btn btn-secondary btn-micro"
+                onClick={p.onSuggestIdeas}
+              >
+                <i className="ph-light ph-lightbulb" /> <span>Suggest ideas with AI</span>
+              </button>
+            </div>
 
-            <FormField
-              label="AI Profile Persona"
-              type="select"
-              value={persona}
-              onChange={setPersona}
-              options={PERSONA_OPTIONS}
-            />
+            <div className="form-group">
+              <label>AI Profile (writing guide)</label>
+              <select
+                id="fb-brain-profile"
+                className="form-select"
+                value={p.profile}
+                onChange={(e) => p.setProfile(e.target.value)}
+              >
+                {PROFILE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <FormField
-              label="Core Prompt / Seed Idea"
-              type="textarea"
-              value={prompt}
-              onChange={setPrompt}
-              placeholder="E.g., Tổng hợp các deal bàn phím cơ hot nhất..."
-            />
+            <div className="form-group">
+              <label>Core Prompt / Seed Idea</label>
+              <textarea
+                id="fb-prompt"
+                className="form-textarea"
+                value={p.prompt}
+                onChange={(e) => p.setPrompt(e.target.value)}
+                placeholder="E.g., Tổng hợp các deal bàn phím cơ hot nhất..."
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Monetization Type &amp; Link</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <select
+                  id="fb-monetize-type"
+                  className="form-select"
+                  style={{ flex: 1 }}
+                  value={p.monetizeType}
+                  onChange={(e) => p.setMonetizeType(e.target.value)}
+                >
+                  <option value="none">No Link</option>
+                  <option value="shopee">Shopee Affiliate</option>
+                  <option value="blog">Blog Ad Link</option>
+                </select>
+                <input
+                  type="text"
+                  id="fb-monetize-link"
+                  className="form-input"
+                  style={{ flex: 2 }}
+                  value={p.monetizeLink}
+                  onChange={(e) => p.setMonetizeLink(e.target.value)}
+                  placeholder="https://shopee.vn/... or blog link"
+                />
+              </div>
+            </div>
 
             <div className="form-group">
               <label>Media Option</label>
-              <PillGroup options={MEDIA_OPTIONS} value={media} onChange={setMedia} />
+              <div className="radio-group">
+                {[
+                  { value: 'text', label: 'Text Only' },
+                  { value: 'image', label: 'Generate AI Cover' },
+                  { value: 'video', label: 'Link AI Video' },
+                ].map((o) => (
+                  <label className="radio-pill" key={o.value}>
+                    <input
+                      type="radio"
+                      name="fb-media-opt"
+                      value={o.value}
+                      checked={p.media === o.value}
+                      onChange={() => p.setMedia(o.value)}
+                    />
+                    <span>{o.label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
+
+            {p.media === 'video' && (
+              <div className="form-group" id="fb-video-flow-jump">
+                <button type="button" className="btn btn-secondary w-full" onClick={p.onJumpVideo}>
+                  <i className="ph-light ph-video-camera" />
+                  <span>Compose Video in AI Studio</span>
+                </button>
+              </div>
+            )}
 
             <button
               type="button"
               className="btn btn-primary w-full mt-4"
-              disabled={isGenerating}
-              onClick={onCompose}
+              id="fb-generate-btn"
+              disabled={p.isGenerating}
+              onClick={p.onGenerate}
             >
-              {isGenerating ? 'Compiling prompt...' : 'Compose Studio'}
-            </button>
-            <button type="button" className="btn btn-secondary w-full mt-2" onClick={onReset}>
-              Reset Composer
+              <span>Draft Post with Brain</span>
+              <div className="arrow-wrap">
+                <i className="ph-light ph-sparkle" />
+              </div>
             </button>
           </div>
         </div>
@@ -110,72 +183,95 @@ function FacebookBrain({
           <div className="card-inner">
             <div className="panel-header-sub">
               <h3>Live Output Preview</h3>
-              <span className="preview-status">{isGenerating ? 'Thinking...' : previewText ? 'Ready' : 'Idle'}</span>
+              <span className="preview-status" id="fb-preview-status">
+                {p.status}
+              </span>
             </div>
 
             <div className="fb-preview-card">
               <div className="fb-preview-header">
-                <div className="fb-avatar">
-                  <PlatformIcon platform="facebook" size={20} />
-                </div>
+                <div className="fb-avatar">FB</div>
                 <div>
                   <h5>
                     Affiliate Tech Page{' '}
                     <span className="verified-badge">
-                      <span className="material-symbols-outlined" style={{ fontSize: '14px', verticalAlign: 'middle' }}>verified</span>
+                      <i className="ph-fill ph-seal-check" />
                     </span>
                   </h5>
                   <span>Just now · Simulated Preview</span>
                 </div>
               </div>
-              <div className="fb-preview-body">
-                {isGenerating ? (
+
+              <div
+                className="fb-preview-body editable-body"
+                id="fb-preview-body"
+                contentEditable
+                suppressContentEditableWarning
+                ref={p.previewRef}
+              >
+                {p.isGenerating ? (
                   <span className="media-loader">AI Brain compiling prompts...</span>
-                ) : previewText ? (
-                  <p style={{ whiteSpace: 'pre-wrap' }}>{previewText}</p>
+                ) : p.previewText ? (
+                  p.previewText
                 ) : (
                   <p className="placeholder-text">
                     Output will appear here once AI Brain generates the draft...
                   </p>
                 )}
               </div>
-              {showMedia === 'image' && (
-                <div className="fb-preview-media">
-                  <img
-                    src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=600&q=80"
-                    alt="AI B-Roll"
-                    style={{ width: '100%', borderRadius: '8px' }}
-                  />
+
+              {p.showMedia === 'image' && (
+                <div className="fb-preview-media" id="fb-preview-image-box">
+                  <div className="media-loader">Generating AI Cover Art...</div>
                 </div>
               )}
-              {showMedia === 'video' && (
-                <div className="fb-preview-media">
-                  <div className="media-loader" style={{ height: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#fff', borderRadius: '8px' }}>
-                    <span className="material-symbols-outlined" style={{ marginRight: '8px' }}>play_circle</span>
-                    Simulated Video Stream Active
-                  </div>
+              {p.showMedia === 'video' && (
+                <div className="fb-preview-media" id="fb-preview-video-box">
+                  <div className="media-loader">AI Video Preview Container</div>
                 </div>
               )}
+
               <div className="fb-preview-footer">
                 <span>
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', verticalAlign: 'middle', marginRight: '4px' }}>thumb_up</span>
-                  Like
+                  <i className="ph-light ph-thumbs-up" /> <span>Like</span>
                 </span>
                 <span>
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', verticalAlign: 'middle', marginRight: '4px' }}>chat_bubble</span>
-                  Comment
+                  <i className="ph-light ph-chat-circle" /> <span>Comment</span>
                 </span>
                 <span>
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', verticalAlign: 'middle', marginRight: '4px' }}>share</span>
-                  Share
+                  <i className="ph-light ph-share-network" /> <span>Share</span>
                 </span>
               </div>
             </div>
 
-            {previewText && !isGenerating && (
-              <div style={{ marginTop: '16px' }}>
-                <button type="button" className="btn btn-primary w-full" onClick={onPush}>
-                  Push to Kanban
+            {ready && (
+              <div className="composer-feedback" id="fb-feedback-wrap">
+                <label>Feedback to Brain (regenerate)</label>
+                <div className="feedback-row">
+                  <input
+                    type="text"
+                    className="form-input"
+                    id="fb-feedback"
+                    value={p.feedback}
+                    onChange={(e) => p.setFeedback(e.target.value)}
+                    placeholder="E.g., punchier hook, add price, less salesy..."
+                  />
+                  <button type="button" className="btn btn-secondary" onClick={p.onRegenerate}>
+                    <i className="ph-light ph-arrows-clockwise" /> Regenerate
+                  </button>
+                </div>
+                <p className="dash-sub">
+                  Or edit the text directly in the preview above before pushing.
+                </p>
+              </div>
+            )}
+            {ready && (
+              <div className="preview-actions" id="fb-preview-actions">
+                <button type="button" className="btn btn-secondary" onClick={p.onDiscard}>
+                  Discard
+                </button>
+                <button type="button" className="btn btn-primary" onClick={p.onPush}>
+                  Push to Kanban Board
                 </button>
               </div>
             )}
@@ -189,127 +285,229 @@ function FacebookBrain({
 export function FacebookView(): React.ReactElement {
   const [activeTab, setActiveTab] = useState('brain');
   const [cards, setCards] = useState<KanbanCardData[]>(SEED_CARDS);
-  // The plugin-wide selected account (kit-accounts-backed) comes from
-  // SelectedAccountContext. The provider seeds itself from localStorage
-  // and exposes the same AccountCardData the picker uses, so every
-  // tab — Brain Feed, Repost Crawl, Publish queue — sees the same
-  // choice without carrying its own local useState.
   const {
     account: picked,
-    accounts: ctxAccounts,
     reloadAccounts: reloadCtxAccounts,
     setAccount,
   } = useSelectedAccount();
-  // Login dialog state — opened after the user confirms a name in
-  // AddFacebookAccountDialog. We track an intent object so the dialog
-  // knows which profilePath/name to suggest. The name modal is the
-  // gate that produces the `name`; without it the sidecar would
-  // short-circuit on persistKitAccount().
-  const [loginIntent, setLoginIntent] = useState<LoginIntent | null>(null);
-  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [loginIntent, setLoginIntent] = useState<{ name: string } | null>(null);
   const toast = useToast();
 
   const [prompt, setPrompt] = useState('');
-  const [persona, setPersona] = useState('tech');
+  const [profile, setProfile] = useState('tech');
+  const [monetizeType, setMonetizeType] = useState('none');
+  const [monetizeLink, setMonetizeLink] = useState('');
   const [media, setMedia] = useState('text');
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewText, setPreviewText] = useState('');
   const [showMedia, setShowMedia] = useState('none');
+  const [status, setStatus] = useState('Idle');
+  const [feedback, setFeedback] = useState('');
+  const previewRef = useRef<HTMLDivElement>(null);
 
-  const handleCompose = () => {
-    if (!prompt.trim()) return;
+  // Automation config is per-account (browser-sim, no real API).
+  const [automation, setAutomation] = useState<AutomationConfig>({
+    scheduleOn: true,
+    cadence: '3 posts / day (peak hours)',
+    warmupStage: 'Mature (full cadence)',
+    autopilot: false,
+    rules: [
+      { id: 'r1', keyword: 'cảm ơn / thanks / 👍', action: 'reply' },
+      { id: 'r2', keyword: 'giá / bao nhiêu / ship', action: 'escalate' },
+      { id: 'r3', keyword: 'lừa đảo / scam', action: 'hide' },
+    ],
+  });
+
+  const profileLabel = (v: string): string =>
+    PROFILE_OPTIONS.find((o) => o.value === v)?.label ?? v;
+
+  // triggerBrainPostGeneration: validate → Thinking (loader) → ~4s →
+  // sample + monetize link append → Ready (reveals feedback + actions).
+  const handleGenerate = useCallback(() => {
+    if (!prompt.trim()) {
+      toast.push('Please specify a prompt first.', 'info');
+      return;
+    }
     setIsGenerating(true);
+    setStatus('Thinking...');
     setPreviewText('');
     setShowMedia('none');
 
     setTimeout(() => {
-      let output = '';
-      if (persona === 'tech') {
-        output = `🔥 DEAL BÀN PHÍM CƠ HOT NHẤT HÔM NAY 🔥\n\nAula F75 Silent - chiếc bàn phím êm ái nhất năm nay đã lên kệ với giá ưu đãi cực sốc cho anh em cú đêm. Giá chỉ còn 890k tại link bio! #MechanicalKeyboard #Affiliate`;
-      } else if (persona === 'soccer') {
-        output = `⚽ AI Brain dự đoán tỷ số tối nay! Trận cầu nảy lửa với phân tích dữ liệu chuyên sâu từ mô hình AI. Anh em click bio xem ngay nhận định kèo thơm. #Football #Predictions`;
-      } else {
-        output = `Lập trình viên 2026 gõ code silent Aula F75. Click giỏ hàng mua ngay! #Affiliate #TikTokShop #Coding`;
+      let output = FB_SAMPLE;
+      if (monetizeType !== 'none' && monetizeLink.trim()) {
+        if (monetizeType === 'shopee') {
+          output += `\n\n👉 Mua ngay tại Shopee: ${monetizeLink.trim()}`;
+        } else if (monetizeType === 'blog') {
+          output += `\n\n👉 Đọc review chi tiết tại Blog: ${monetizeLink.trim()}`;
+        }
       }
-
       setPreviewText(output);
       setShowMedia(media);
+      setStatus('Ready');
       setIsGenerating(false);
-    }, 1000);
-  };
+      toast.success('Post generated by AI Brain!');
+    }, 4000);
+  }, [prompt, monetizeType, monetizeLink, media, toast]);
 
-  const handleReset = () => {
+  // regenerateWithFeedback: append the note to the prompt and re-run.
+  const handleRegenerate = useCallback(() => {
+    if (!feedback.trim()) {
+      toast.push('Type feedback first.', 'info');
+      return;
+    }
+    setPrompt((prev) => `${prev}\n[Feedback: ${feedback.trim()}]`);
+    setFeedback('');
+    toast.push('Regenerating draft with your feedback…', 'info');
+    // Re-run with the fresh prompt on next tick.
+    setIsGenerating(true);
+    setStatus('Thinking...');
+    setPreviewText('');
+    setShowMedia('none');
+    setTimeout(() => {
+      let output = FB_SAMPLE;
+      if (monetizeType !== 'none' && monetizeLink.trim()) {
+        output +=
+          monetizeType === 'shopee'
+            ? `\n\n👉 Mua ngay tại Shopee: ${monetizeLink.trim()}`
+            : `\n\n👉 Đọc review chi tiết tại Blog: ${monetizeLink.trim()}`;
+      }
+      setPreviewText(output);
+      setShowMedia(media);
+      setStatus('Ready');
+      setIsGenerating(false);
+      toast.success('Post generated by AI Brain!');
+    }, 4000);
+  }, [feedback, monetizeType, monetizeLink, media, toast]);
+
+  const handleDiscard = useCallback(() => {
     setPrompt('');
     setPreviewText('');
     setShowMedia('none');
-  };
+    setStatus('Idle');
+    setFeedback('');
+  }, []);
 
-  const handlePushToKanban = () => {
-    if (!previewText) return;
+  // pushToKanban: read the (possibly edited) contenteditable body, unshift a
+  // TODO card with the selected AI profile, toast, switch to kanban.
+  const handlePushToKanban = useCallback(() => {
+    const bodyText = previewRef.current?.innerText?.trim() || previewText;
+    if (!bodyText) return;
     const newCard: KanbanCardData = {
-      id: `k-${Date.now()}`,
-      title: previewText.split('\n')[0].substring(0, 32) + '...',
-      desc: previewText,
+      id: `k${Date.now()}`,
+      title: bodyText.split('\n')[0].substring(0, 32) + '...',
+      desc: bodyText,
       platform: 'facebook',
       status: 'todo',
-      profile: persona === 'tech' ? 'Affiliate Tech' : 'Trend Master',
+      profile: profileLabel(profile),
       date: 'Just now',
     };
-
     setCards((prev) => [newCard, ...prev]);
-    handleReset();
+    handleDiscard();
+    toast.success('Draft pushed to TODO Kanban column!');
     setActiveTab('kanban');
-  };
+  }, [previewText, profile, handleDiscard, toast]);
 
-  const handleGoToCrawl = () => {
-    setActiveTab('crawl');
-  };
+  // suggestIdeas: unshift 3 idea cards into the Ideas column, switch to kanban.
+  const handleSuggestIdeas = useCallback(() => {
+    toast.push('AI Brain is generating ideas…', 'info');
+    setTimeout(() => {
+      setCards((prev) => {
+        const extra: KanbanCardData[] = [0, 1, 2].map((i) => {
+          const seed = IDEA_SEEDS[(i + prev.length) % IDEA_SEEDS.length];
+          return {
+            id: `idea${Date.now()}-${i}`,
+            title: seed,
+            desc: 'AI-suggested idea for Facebook. Approve to let Brain write the draft.',
+            platform: 'facebook',
+            status: 'ideas',
+            profile: profileLabel(profile),
+            date: 'Just now',
+          };
+        });
+        return [...extra, ...prev];
+      });
+      toast.success('Added 3 ideas to the Ideas column (Kanban).');
+      setActiveTab('kanban');
+    }, 1200);
+  }, [profile, toast]);
 
-  const handleDraftsReady = (_feedIds: string[]) => {
-    toast.success('Đã generate drafts — mở tab Kanban để xem.');
-  };
+  // approveIdea: brain "writes" the draft → move idea to progress.
+  const handleApproveIdea = useCallback(
+    (cardId: string) => {
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === cardId
+            ? {
+                ...c,
+                status: 'progress',
+                desc: `[Brain draft via "${c.profile}"] ${c.desc}`,
+              }
+            : c
+        )
+      );
+      toast.success('Brain writing draft with the suggested profile');
+    },
+    [toast]
+  );
 
-  const handleOpenBrainFeed = React.useCallback(() => setActiveTab('brain-feed'), []);
+  const handleJumpVideo = useCallback(() => {
+    // Playwright-sim: no real video studio in this module; carry the prompt.
+    toast.push('Jumped to Video Studio. Ready to link B-roll back to FACEBOOK', 'info');
+  }, [toast]);
 
-  // RepostCrawlSection needs real account/group lists to drive its
-  // crawl form. The schedule modal is self-contained now (it
-  // dispatches `mdp:open-kanban` so we switch the tab from here).
-  // Source of truth is now the SelectedAccountContext (which also
-  // keeps `accounts` in AccountCardData shape); we keep this name
-  // here so the rest of the file's `<RepostCrawlSection accounts={...} />`
-  // payload doesn't need to change.
-  const accounts = ctxAccounts;
-  const reloadAccounts = reloadCtxAccounts;
+  // --- Automation handlers (mirror app.js) ---
+  const toggleSchedule = useCallback(() => {
+    setAutomation((c) => {
+      const next = !c.scheduleOn;
+      toast.push(`Schedule ${next ? 'on' : 'off'} for ${picked?.name ?? 'account'}`, 'info');
+      return { ...c, scheduleOn: next };
+    });
+  }, [picked, toast]);
 
-  // Bridge for legacy mounts of <RepostCrawlSection /> (e.g. inside
-  // RepostTab) where the parent can't easily pass onOpenBrainFeed down.
-  // The crawl section's "Mở Brain Feed" chip dispatches this event;
-  // we listen here and switch to the Brain Feed tab.
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handler = () => setActiveTab('brain-feed');
-    window.addEventListener('mdp:open-brain-feed', handler);
-    return () => window.removeEventListener('mdp:open-brain-feed', handler);
+  const setCadence = useCallback((v: string) => {
+    setAutomation((c) => ({ ...c, cadence: v }));
   }, []);
 
-  // SchedulePostModal dispatches mdp:open-kanban when the user hits OK;
-  // we listen and switch the active tab to the new Kanban so they can
-  // watch the slots get published.
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handler = () => setActiveTab('kanban');
-    window.addEventListener('mdp:open-kanban', handler);
-    return () => window.removeEventListener('mdp:open-kanban', handler);
+  const toggleAutopilot = useCallback(() => {
+    setAutomation((c) => {
+      const next = !c.autopilot;
+      if (next) {
+        toast.push(`Autopilot ON for ${picked?.name ?? 'account'} — posts skip review.`, 'info');
+      } else {
+        toast.push(`Autopilot off for ${picked?.name ?? 'account'}.`, 'info');
+      }
+      return { ...c, autopilot: next };
+    });
+  }, [picked, toast]);
+
+  const addReplyRule = useCallback(
+    (keyword: string, action: ReplyRule['action']) => {
+      if (!keyword) {
+        toast.push('Enter a keyword.', 'info');
+        return;
+      }
+      setAutomation((c) => ({
+        ...c,
+        rules: [...c.rules, { id: `r${Date.now()}`, keyword, action }],
+      }));
+      toast.success('Reply rule added.');
+    },
+    [toast]
+  );
+
+  const delReplyRule = useCallback((id: string) => {
+    setAutomation((c) => ({ ...c, rules: c.rules.filter((r) => r.id !== id) }));
   }, []);
 
-  // Picker-first entry: this plugin always shows the account picker
-  // when the user opens FB Content (even if they had a selection stored
-  // from a prior session). "Switch account" inside the studio drops the
-  // selection and bounces back to the picker too.
-  //
-  // We track "this tab session" via sessionStorage so HMR reloads
-  // during dev keep the studio mounted (don't bounce the developer
-  // back to the picker every save).
+  const handleSwitch = useCallback(() => setAccount(null), [setAccount]);
+  const handleAdd = useCallback(() => setLoginIntent({ name: '' }), []);
+  const handleLoginSuccess = useCallback(() => {
+    reloadCtxAccounts();
+    setLoginIntent(null);
+  }, [reloadCtxAccounts]);
+
+  // Picker-first entry: always show the picker on a fresh tab session.
   const SESSION_FLAG = 'mdp.fb-content.sessionStarted';
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -317,84 +515,31 @@ export function FacebookView(): React.ReactElement {
     try {
       fresh = !window.sessionStorage.getItem(SESSION_FLAG);
       if (fresh) window.sessionStorage.setItem(SESSION_FLAG, '1');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (fresh) setAccount(null);
-    // Only on first mount of a session; ignore dep changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Picker selection is now global. `picked` is derived from the
-  // context value above so the modal/studio transition follows the
-  // user everywhere — including across tab switches and HMR reloads.
   const handlePick = useCallback((_a: AccountCardData) => {
-    // No-op: context setter already lives on the picker's onPick
-    // (we'll switch AccountPickerView to write directly to the context
-    // in a follow-up). Until then, this handler is intentionally empty.
     void _a;
   }, []);
 
-  const handleSwitch = useCallback(() => {
-    // Drop the current selection so the picker shows again. Mirrors
-    // the "first open" behavior; preserves accounts[] so cards stay
-    // click-targetable.
-    setAccount(null);
-  }, [setAccount]);
+  const viewHeader = (
+    <div className="view-header">
+      <div>
+        <p className="eyebrow">FACEBOOK MODULE</p>
+        <h2>Facebook Studio &amp; Automation</h2>
+      </div>
+    </div>
+  );
 
-  const handleAdd = useCallback(() => {
-    // Step 1: open the name modal. The dialog hands a chosen name
-    // back via handleNameConfirm; only then do we mount the
-    // AccountLoginDialog. This mirrors FB Studio's working flow —
-    // skipping the modal leaves AccountLoginDialog with name='',
-    // which the sidecar's persistKitAccount() silently drops.
-    setNameModalOpen(true);
-  }, []);
-
-  const handleNameConfirm = useCallback((name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    // Allocate a fresh chromium profile dir per click — the nonce
-    // pattern matches FB Studio so fast double-clicks can't collide
-    // on the chrome profile lockfile. The kit-accounts `name`
-    // (the trimmed arg) is what ~/mdp-data/accounts/<name>/
-    // resolves to; profilePath is purely the temporary local
-    // chromium scratch dir.
-    const ts = Date.now();
-    const nonce =
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID().slice(0, 8)
-        : Math.random().toString(16).slice(2, 10);
-    const profilePath = `~/.mdp/facebook/profiles/${trimmed}-${ts}-${nonce}`;
-    setNameModalOpen(false);
-    setLoginIntent({ name: trimmed, profilePath });
-  }, []);
-
-  const closeLoginDialog = useCallback(() => {
-    setLoginIntent(null);
-  }, []);
-
-  const handleLoginSuccess = useCallback(() => {
-    // Refresh the picker list so the new account shows up, and
-    // close the dialog. The user can re-pick (or stay on the dialog
-    // for another add — flow is up to them).
-    reloadAccounts();
-    setLoginIntent(null);
-  }, [reloadAccounts]);
-
-  // Pre-picker gate. The shell renders the eyebrow + h1 header above
-  // this — we only own the picker grid + add tile.
   if (!picked) {
     return (
-      <>
-        <AccountPickerView
-          onPick={handlePick}
-          onAdd={handleAdd}
-        />
-        <AddFacebookAccountDialog
-          open={nameModalOpen}
-          existingNames={(accounts ?? []).map((a) => a.name)}
-          onClose={() => setNameModalOpen(false)}
-          onConfirm={handleNameConfirm}
-        />
+      <div className="fb-studio-root">
+        {viewHeader}
+        <AccountPickerView onPick={handlePick} onAdd={handleAdd} />
         {loginIntent && (
           <AccountLoginDialog
             open={!!loginIntent}
@@ -404,58 +549,73 @@ export function FacebookView(): React.ReactElement {
             onSuccess={handleLoginSuccess}
           />
         )}
-      </>
+      </div>
     );
   }
 
+  const accountBar = (
+    <div className="studio-account-bar" data-testid="studio-account-bar">
+      <span className="sab-name">
+        <i className="ph-fill ph-facebook-logo" />
+        {picked.name}
+        <span className="session-badge session-valid">Session valid</span>
+      </span>
+      <button
+        type="button"
+        data-testid="switch-account-button"
+        className="btn-micro"
+        onClick={handleSwitch}
+      >
+        <i className="ph-light ph-arrows-left-right" /> Switch account
+      </button>
+    </div>
+  );
+
   return (
-    <>
+    <div className="fb-studio-root">
+      {viewHeader}
       <StudioFrame
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        accountBar={accountBar}
+        accountBarName={picked.name}
+        onApproveIdea={handleApproveIdea}
         brainContent={
           <FacebookBrain
             prompt={prompt}
             setPrompt={setPrompt}
-            persona={persona}
-            setPersona={setPersona}
+            profile={profile}
+            setProfile={setProfile}
+            monetizeType={monetizeType}
+            setMonetizeType={setMonetizeType}
+            monetizeLink={monetizeLink}
+            setMonetizeLink={setMonetizeLink}
             media={media}
             setMedia={setMedia}
             isGenerating={isGenerating}
-            onCompose={handleCompose}
-            onReset={handleReset}
+            status={status}
+            onGenerate={handleGenerate}
+            onRegenerate={handleRegenerate}
+            onDiscard={handleDiscard}
             onPush={handlePushToKanban}
+            onSuggestIdeas={handleSuggestIdeas}
+            onJumpVideo={handleJumpVideo}
             previewText={previewText}
             showMedia={showMedia}
+            feedback={feedback}
+            setFeedback={setFeedback}
+            previewRef={previewRef}
           />
         }
         kanbanCards={cards}
-        onGoToCrawl={handleGoToCrawl}
-        onDraftsReady={handleDraftsReady}
-        onOpenBrainFeed={handleOpenBrainFeed}
-        headerExtras={picked ? (
-          <button
-            type="button"
-            data-testid="switch-account-button"
-            className="btn btn-secondary"
-            onClick={handleSwitch}
-            style={{ fontSize: 12 }}
-            title={`Đang dùng: ${picked.name}`}
-          >
-            Đổi tài khoản · {picked.name}
-          </button>
-        ) : null}
-        crawlSlot={({ onOpenBrainFeed: slotOpenBrainFeed }) => (
-          <RepostCrawlSection
-            accounts={accounts}
-            onOpenBrainFeed={slotOpenBrainFeed}
-          />
-        )}
-        kanbanSlot={() => <KanbanTab />}
+        crawlSlot={() => <CrawlerPane toast={toast} />}
+        automation={automation}
+        onToggleSchedule={toggleSchedule}
+        onSetCadence={setCadence}
+        onToggleAutopilot={toggleAutopilot}
+        onAddReplyRule={addReplyRule}
+        onDelReplyRule={delReplyRule}
       />
-      {/* Login dialog (kept mounted after pick so user can still add
-          another account via the existing account-management UI
-          without leaving the studio). */}
       {loginIntent && (
         <AccountLoginDialog
           open={!!loginIntent}
@@ -465,15 +625,83 @@ export function FacebookView(): React.ReactElement {
           onSuccess={handleLoginSuccess}
         />
       )}
-      {/* Name modal — gate for the add flow when the user is already
-          inside the studio and wants to add another account. */}
-      <AddFacebookAccountDialog
-        open={nameModalOpen}
-        existingNames={(accounts ?? []).map((a) => a.name)}
-        onClose={() => setNameModalOpen(false)}
-        onConfirm={handleNameConfirm}
-      />
-    </>
+    </div>
+  );
+}
+
+interface CrawledFeed {
+  id: string;
+  title: string;
+  desc: string;
+}
+
+// Crawl & Input pane — 2-col bento (Crawl Configuration + Crawled Feeds).
+// Browser-sim per DESIGN-DECISIONS (no real API).
+function CrawlerPane({ toast }: { toast: ReturnType<typeof useToast> }): React.ReactElement {
+  const [target, setTarget] = useState('https://facebook.com/tech_reviewer_vietnam');
+  const [feeds, setFeeds] = useState<CrawledFeed[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const runCrawl = useCallback(() => {
+    setBusy(true);
+    toast.push(`Browser-sim crawler scraping ${target}...`, 'info');
+    setTimeout(() => {
+      setFeeds((prev) => [
+        {
+          id: `as${Date.now()}`,
+          title: `Scraped media from Facebook (Just now)`,
+          desc: `Saved to Asset Library · crawl: ${target}`,
+        },
+        ...prev,
+      ]);
+      setBusy(false);
+      toast.success('Saved scraped media to Asset Library');
+    }, 2000);
+  }, [target, toast]);
+
+  return (
+    <div className="studio-pane active" id="fb-studio-crawler">
+      <div className="bento-grid">
+        <div className="bento-card col-span-6 double-bezel">
+          <div className="card-inner">
+            <h3>Crawl Configuration</h3>
+            <div className="form-group">
+              <label>Target Page URL / ID</label>
+              <input
+                type="text"
+                className="form-input"
+                id="fb-crawl-target"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+              />
+            </div>
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={runCrawl}>
+              <span>Run Discovery Crawl</span>
+            </button>
+          </div>
+        </div>
+        <div className="bento-card col-span-6 double-bezel">
+          <div className="card-inner">
+            <h3>Crawled Feeds &amp; Source Stream</h3>
+            <div className="crawler-list" id="fb-crawler-results">
+              {feeds.length === 0 ? (
+                <p className="desc">Run a discovery crawl to populate this stream.</p>
+              ) : (
+                feeds.map((f) => (
+                  <div className="crawl-item" key={f.id}>
+                    <i className="ph-light ph-rss" />
+                    <div className="crawl-item-content">
+                      <h5>{f.title}</h5>
+                      <p>{f.desc}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

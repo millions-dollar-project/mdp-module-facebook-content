@@ -46,7 +46,7 @@ describe('App shell', () => {
       expect(screen.getByTestId('add-account-card')).toBeInTheDocument()
     })
     // No studio tabs yet — picker is the gate.
-    expect(screen.queryByRole('tab', { name: 'Composer' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'AI Composer' })).not.toBeInTheDocument()
   })
 
   it('picker-first entry: shows picker even when a pick is stored', async () => {
@@ -59,7 +59,7 @@ describe('App shell', () => {
       expect(screen.getByTestId('account-card-alice')).toBeInTheDocument()
     })
     // No studio tabs while picker is visible.
-    expect(screen.queryByRole('tab', { name: 'Composer' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'AI Composer' })).not.toBeInTheDocument()
     // The previously stored name was cleared by the fresh-session effect.
     expect(window.localStorage.getItem('mdp.fb-content.selectedAccountName')).toBeNull()
   })
@@ -76,10 +76,10 @@ describe('App shell', () => {
     fireEvent.click(card)
     // Studio mounts; Composer is the default active tab.
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Composer' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'AI Composer' })).toBeInTheDocument()
     })
-    expect(screen.getByRole('tab', { name: 'Composer' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('button', { name: /Compose Studio/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'AI Composer' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: /Draft Post with Brain/i })).toBeInTheDocument()
   })
 
   it('"Đổi tài khoản" header button returns to the picker', async () => {
@@ -87,14 +87,14 @@ describe('App shell', () => {
     render(<App />)
     fireEvent.click(await screen.findByTestId('account-card-alice', {}, { timeout: 2000 }))
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Composer' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'AI Composer' })).toBeInTheDocument()
     })
     fireEvent.click(screen.getByTestId('switch-account-button'))
     await waitFor(() => {
       expect(screen.getByTestId('account-card-alice')).toBeInTheDocument()
     })
     // Studio unmounted; picker is back.
-    expect(screen.queryByRole('tab', { name: 'Composer' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'AI Composer' })).not.toBeInTheDocument()
   })
 
   it('switches to Kanban tab on click and shows the kanban pane', async () => {
@@ -102,9 +102,9 @@ describe('App shell', () => {
     render(<App />)
     fireEvent.click(await screen.findByTestId('account-card-alice', {}, { timeout: 2000 }))
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Kanban' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Kanban Lifecycle' })).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByRole('tab', { name: 'Kanban' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Kanban Lifecycle' }))
     expect(screen.getByTestId('kanban-pane')).toBeInTheDocument()
   })
 
@@ -113,9 +113,9 @@ describe('App shell', () => {
     render(<App />)
     fireEvent.click(await screen.findByTestId('account-card-alice', {}, { timeout: 2000 }))
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Crawl' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Crawl & Input' })).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByRole('tab', { name: 'Crawl' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Crawl & Input' }))
     expect(screen.getByTestId('crawl-pane')).toBeInTheDocument()
   })
 })

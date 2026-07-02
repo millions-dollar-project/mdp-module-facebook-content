@@ -51,7 +51,11 @@ export const AccountPickerView: React.FC<AccountPickerViewProps> = ({
   const effectiveSelectedId = selectedId ?? ctxAccount?.id ?? null;
 
   return (
-    <div className="account-picker-view" style={{ paddingTop: 8 }}>
+    <div className="account-picker account-picker-view" style={{ paddingTop: 8 }}>
+      <p className="picker-hint">
+        Choose an account to work in, or add a new one. Each account has its own browser
+        profile + sticky proxy.
+      </p>
       <ModuleAccountPicker
         accounts={accounts}
         loading={loading}
@@ -59,10 +63,10 @@ export const AccountPickerView: React.FC<AccountPickerViewProps> = ({
         selectedId={effectiveSelectedId}
         onPick={handlePick}
         onAdd={onAdd}
-        emptyTitle="Chưa có Facebook account"
-        emptySubtitle="Thêm account đầu tiên để crawl, generate và đăng bài tự động."
-        addLabel="Thêm Facebook account"
-        addHint="Mở login flow (Playwright + sticky proxy)"
+        emptyTitle="No Facebook account yet"
+        emptySubtitle="Add your first account to crawl, generate and publish automatically."
+        addLabel="Add account"
+        addHint="Open login flow (Playwright + sticky proxy)"
         disableAdd={loading}
       />
     </div>

@@ -5,6 +5,7 @@ if (typeof window !== 'undefined' && !(window as any).process) {
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import './studio.css';
 import { App } from './App';
 
 type RootEl = HTMLElement & { _root?: ReturnType<typeof createRoot> };
