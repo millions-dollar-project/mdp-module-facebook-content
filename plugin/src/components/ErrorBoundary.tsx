@@ -62,6 +62,26 @@ export class ErrorBoundary extends React.Component<Props, State> {
             >
               {this.state.error.message}
             </div>
+            {this.state.error.stack && (
+              <pre
+                data-testid="error-boundary-stack"
+                style={{
+                  fontSize: 11,
+                  color: 'var(--ds-text-muted)',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  maxHeight: 200,
+                  overflow: 'auto',
+                  background: 'var(--bg-elevated)',
+                  padding: 8,
+                  borderRadius: 4,
+                  margin: 0,
+                }}
+              >
+                {this.state.error.stack}
+              </pre>
+            )}
             <button
               type="button"
               className="btn btn-secondary"

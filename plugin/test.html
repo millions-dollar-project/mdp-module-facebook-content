@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>FB Content test</title></head>
+<body>
+<div id="root"></div>
+<script>
+  window.__errors = [];
+  window.addEventListener('error', (e) => {
+    window.__errors.push({ type: 'error', msg: e.message, stack: e.error?.stack, src: e.filename + ':' + e.lineno + ':' + e.colno });
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    window.__errors.push({ type: 'unhandledrejection', msg: String(e.reason?.message || e.reason), stack: e.reason?.stack });
+  });
+  // Mimic the Tauri shell — forward ipc.invoke to the actual backend
+  // over a transparent fetch. fbFetch routes through proxy_to_backend.
+  window.mdp = {
+    register: (reg) => {
+      window.__reg = { id: reg.id, hasMount: typeof reg.mount === 'function' };
+      try { reg.mount(document.getElementById('root')); window.__mountOk = true; }
+      catch (e) { window.__mountErr = String(e) + '\n' + (e.stack || ''); }
+    },
+    ipc: {
+      invoke: async (channel, payload) => {
+        // Generic channel "facebook:<path>" — forward as HTTP GET
+        if (channel.startsWith('facebook:')) {
+          const path = '/' + channel.slice('facebook:'.length);
+          const r = await fetch('http://localhost:8086' + path, { method: 'GET' });
+          if (!r.ok) throw new Error(channel + ' failed: ' + r.status);
+          return r.json();
+        }
+        if (channel === 'proxy_to_backend') {
+          const { port, path, method, body, contentType } = payload;
+          const r = await fetch(`http://localhost:${port}${path}`, {
+            method: method || 'GET',
+            headers: contentType ? { 'Content-Type': contentType } : undefined,
+            body: body ? new TextDecoder().decode(new Uint8Array(body)) : undefined,
+          });
+          const text = await r.text();
+          return Array.from(new TextEncoder().encode(text));
+        }
+        throw new Error('No handler registered for ' + channel);
+      },
+    },
+    auth: { login: async () => ({ token: 'dev', role: 'admin' }) },
+  };
+</script>
+<script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
