@@ -403,6 +403,151 @@
 .fb-file-input { font: inherit; color: var(--ds-text); }
 
 /* ==========================================================================
+   Schedule Post Modal — "Tạo bài từ crawl"
+   ========================================================================== */
+
+.schedule-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.schedule-modal__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.schedule-modal__row--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+}
+.schedule-modal__row--inline .schedule-modal__label {
+  flex: 0 0 auto;
+  min-width: 11rem;
+}
+
+.schedule-modal__label {
+  color: var(--ds-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.schedule-modal__num-drafts {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.schedule-modal__num-input {
+  width: 5rem;
+  text-align: center;
+}
+.schedule-modal__step {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--ds-border);
+  background: var(--bg-surface);
+  color: var(--ds-text);
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.schedule-modal__step:hover:not(:disabled) {
+  background: var(--bg-surface-2, rgba(255, 255, 255, 0.06));
+}
+.schedule-modal__step:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.schedule-modal__count {
+  font-size: 0.85rem;
+  color: var(--ds-text-muted);
+  padding-left: 0.25rem;
+}
+
+.schedule-modal__schedule {
+  border: 1px solid var(--ds-border);
+  border-radius: 0.6rem;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  background: var(--bg-surface);
+}
+.schedule-modal__schedule[disabled] {
+  opacity: 0.55;
+}
+
+.schedule-modal__preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+.schedule-modal__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: var(--bg-surface-2, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--ds-border);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text);
+}
+
+.schedule-modal__autopost {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px dashed var(--ds-border);
+  cursor: pointer;
+}
+.schedule-modal__autopost input[type="checkbox"] {
+  margin-top: 0.2rem;
+}
+.schedule-modal__autopost span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+}
+.schedule-modal__autopost small {
+  color: var(--ds-text-subtle);
+  font-size: 0.78rem;
+}
+
+.schedule-modal__failures {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.85rem;
+  color: #fecaca;
+}
+.schedule-modal__failures ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+.schedule-modal__failures li {
+  margin: 0.15rem 0;
+}
+
+.schedule-modal__error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  color: #fecaca;
+}
+
+/* ==========================================================================
    Stats grid
    ========================================================================== */
 
